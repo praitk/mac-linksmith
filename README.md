@@ -17,43 +17,47 @@ Linksmith is designed around a few principles:
 - **Auditable implementation** — security-sensitive filesystem operations should remain small and easy to understand.
 - **Safe filesystem operations** — potentially destructive operations must validate their inputs and handle failures conservatively.
 
-## Planned functionality
+## Current functionality
 
-The initial version will focus on symbolic links:
+Linksmith currently provides a Finder Quick Action named **Create Symlink…**:
 
-- Create a symbolic link from Finder.
-- Copy an item as a symbolic-link source and create the link in another Finder location.
-- Support files and directories.
-- Support relative and absolute symbolic links.
-- Handle naming conflicts safely.
+- accepts one or more files or folders selected in Finder;
+- presents a destination folder chooser;
+- creates relative symbolic links by default;
+- optionally creates absolute symbolic links through the host app setting;
+- remembers up to 10 recent destination folders;
+- stores persistent folder access as security-scoped bookmarks; and
+- handles naming conflicts with incrementing suffixes such as `report 2.pdf`.
 
-Additional filesystem operations may be considered later.
+Move-and-replace operations and hard links are not implemented.
 
 ## Architecture
 
-Linksmith is a native macOS application composed of a small host application and Finder integration.
+Linksmith is composed of a small SwiftUI host application, a Finder Action Extension, and a testable core Swift package.
 
 ```text
 Finder
   │
   ▼
-Linksmith Finder Extension
+LinksmithAction
   │
   ▼
-Linksmith filesystem logic
+LinksmithCore
   │
   ▼
 Foundation / macOS filesystem
 ```
 
-Filesystem operations should remain independent from Finder-specific integration wherever practical, allowing the core behavior to be tested separately.
+`LinksmithAction` translates Finder input into file URLs and presents the destination chooser. `LinksmithCore` owns path generation, collision handling, symlink creation, shared settings, and recent-destination persistence. The host app and extension share settings through the `group.com.praitk.Linksmith` App Group.
 
 ## Technology
 
 - macOS
 - Swift
 - SwiftUI
-- Finder Sync
+- Finder Action Extension / Quick Actions
+- App Groups and security-scoped bookmarks
+- Swift Package Manager
 - Swift Testing
 - Xcode
 
@@ -100,11 +104,24 @@ xcodebuild \
   build
 ```
 
+To run the core test suite:
+
+```bash
+swift test --package-path LinksmithCore
+```
+
+### Using the Quick Action
+
+1. Build and run the **Linksmith** scheme once.
+2. In Finder, select one or more files or folders.
+3. Choose **Quick Actions → Create Symlink…**.
+4. Select a destination folder.
+
+If the action is not visible during development, enable `LinksmithAction` in macOS extension settings or Finder's Quick Actions customization interface, then relaunch Finder.
+
 ## Project status
 
-Linksmith is in early development.
-
-The initial work is focused on establishing the macOS application, Finder integration, filesystem abstraction, and automated tests before implementing the complete symbolic-link workflow.
+Linksmith is in early development. The first end-to-end symbolic-link workflow is implemented and covered by tests for path generation, collision handling, multiple selections, and relative-versus-absolute links.
 
 ## License
 

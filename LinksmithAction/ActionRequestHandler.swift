@@ -5,29 +5,47 @@
 //  Created by Niccolò Quattropani on 16.08.2026.
 //
 
+import AppKit
 import Foundation
+import LinksmithCore
 
-class ActionRequestHandler: NSObject, NSExtensionRequestHandling {
+@objc(ActionRequestHandler)
+final class ActionRequestHandler: NSObject, NSExtensionRequestHandling {
+    private let settings = SharedSettings()
+    private let recents = RecentDestinationStore()
+    private let service = SymlinkService()
 
     func beginRequest(with context: NSExtensionContext) {
-        // Get the input item
-        let item = context.inputItems[0] as! NSExtensionItem
-        let content = item.attributedContentText
-        NSLog("Content %@", content!)
-        
-        // Transform the content
-        let newContent = (content == nil) ? NSMutableAttributedString() : content!.mutableCopy() as! NSMutableAttributedString
-        
-        if newContent.length > 0 {
-            newContent.mutableString.append("ABC")
-            item.attributedContentText = newContent
-            
-            // Notify the action is done with success
-            context.completeRequest(returningItems: [item], completionHandler: nil)
-        } else {
-            // Notify the action failed to complete, use an appropriate error
-            context.cancelRequest(withError: NSError(domain: NSCocoaErrorDomain, code: NSUserCancelledError, userInfo: nil))
+        FinderSelectionLoader.load(from: context) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                switch result {
+                case .failure(let error): context.cancelRequest(withError: error)
+                case .success(let sources): self.createLinks(for: sources, context: context)
+                }
+            }
         }
     }
 
+    @MainActor
+    private func createLinks(for sources: [URL], context: NSExtensionContext) {
+        guard let destination = DestinationChooser(recentURLs: recents.resolvedURLs()).choose() else {
+            context.cancelRequest(withError: CocoaError(.userCancelled))
+            return
+        }
+        let scopedURLs = sources + [destination]
+        let access = scopedURLs.map { $0.startAccessingSecurityScopedResource() }
+        defer {
+            for (url, didStart) in zip(scopedURLs, access) where didStart {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+        do {
+            _ = try service.createLinks(to: sources, in: destination, kind: settings.symlinkKind)
+            try recents.remember(destination)
+            context.completeRequest(returningItems: [], completionHandler: nil)
+        } catch {
+            context.cancelRequest(withError: error)
+        }
+    }
 }
