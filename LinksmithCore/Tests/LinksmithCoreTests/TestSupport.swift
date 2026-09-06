@@ -9,3 +9,10 @@ func withDefaults(_ body: (UserDefaults) throws -> Void) throws {
     }
     try body(defaults)
 }
+
+func withTemporaryDirectory(_ body: (URL) throws -> Void) throws {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: url) }
+    try body(url)
+}

@@ -415,6 +415,23 @@ struct SymlinkServiceTests {
         }
     }
 
+    @Test func createLinksCanAllowUnresolvedSources() throws {
+        try withTemporaryDirectory { root in
+            let destination = root.appendingPathComponent("links", isDirectory: true)
+            let source = root.appendingPathComponent("missing.txt")
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+
+            let created = try SymlinkService().createLinks(
+                to: [source],
+                in: destination,
+                sourceValidation: .allowUnresolvedSources
+            )
+
+            #expect(created.map(\.source) == [source])
+            #expect(try FileManager.default.destinationOfSymbolicLink(atPath: created[0].link.path) == "../missing.txt")
+        }
+    }
+
     @Test func createLinksRejectsFileDestination() throws {
         try withTemporaryDirectory { root in
             let source = root.appendingPathComponent("source.txt")
@@ -426,12 +443,5 @@ struct SymlinkServiceTests {
                 try SymlinkService().createLinks(to: [source], in: destination)
             }
         }
-    }
-
-    private func withTemporaryDirectory(_ body: (URL) throws -> Void) throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: url) }
-        try body(url)
     }
 }

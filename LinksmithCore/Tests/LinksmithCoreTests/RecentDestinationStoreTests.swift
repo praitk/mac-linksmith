@@ -74,13 +74,6 @@ struct RecentDestinationStoreTests {
         }
     }
 
-    private func withTemporaryDirectory(_ body: (URL) throws -> Void) throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: url) }
-        try body(url)
-    }
-
     private func makeStore(defaults: UserDefaults, limit: Int = 10) -> RecentDestinationStore {
         RecentDestinationStore(
             defaults: defaults,

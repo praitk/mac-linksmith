@@ -209,22 +209,16 @@ final class LinkWorkflowRunner {
     }
 
     private func createLinks(to sources: [URL], in destination: URL, rememberDestination: Bool) {
-        let scopedURLs = sources + [destination]
-        let access = scopedURLs.map { $0.startAccessingSecurityScopedResource() }
-        defer {
-            for (url, didStart) in zip(scopedURLs, access) where didStart {
-                url.stopAccessingSecurityScopedResource()
-            }
-        }
-
         do {
-            diagnostics?.log("Creating \(sources.count) link(s) in \(destination.path).")
-            let created = try service.createLinks(
-                to: sources,
-                in: destination,
-                kind: settings.symlinkKind,
-                validatesSourcesExist: false
-            )
+            let created = try SecurityScopedAccess.withAccess(to: sources + [destination]) {
+                diagnostics?.log("Creating \(sources.count) link(s) in \(destination.path).")
+                return try service.createLinks(
+                    to: sources,
+                    in: destination,
+                    kind: settings.symlinkKind,
+                    sourceValidation: .allowUnresolvedSources
+                )
+            }
             if rememberDestination {
                 try recents.remember(destination)
                 diagnostics?.log("Remembered recent destination: \(destination.path)")
@@ -245,27 +239,14 @@ final class LinkWorkflowRunner {
         additionalScopedURLs: [URL] = [],
         replacesExistingDestinationSymlink: Bool = false
     ) {
-        let scopedURLs = [source, destination] + additionalScopedURLs
-        let access = scopedURLs.map { $0.startAccessingSecurityScopedResource() }
-        defer {
-            for (url, didStart) in zip(scopedURLs, access) where didStart {
-                url.stopAccessingSecurityScopedResource()
-            }
-        }
-
         do {
-            diagnostics?.log("Moving \(source.path) to \(destination.path) and replacing original with a link.")
-            let replaced = try service.moveItemAndReplaceWithLink(
+            let replaced = try runMoveAndReplace(
                 source: source,
-                in: destination,
-                kind: settings.symlinkKind,
+                destination: destination,
+                additionalScopedURLs: additionalScopedURLs,
                 replacesExistingDestinationSymlink: replacesExistingDestinationSymlink
             )
-            try recents.remember(destination)
-            diagnostics?.log("Remembered recent destination: \(destination.path)")
-            diagnostics?.log("Moved item: \(replaced.movedItem.path)")
-            diagnostics?.log("Created replacement link: \(replaced.original.path) -> \(replaced.targetPath)")
-            showReplacementCompletion(replaced)
+            try handleSuccessfulReplacement(replaced, destination: destination)
         } catch {
             if let linkConflict = error as? LinksmithError,
                case .destinationContainsLinkToSource = linkConflict {
@@ -276,17 +257,13 @@ final class LinkWorkflowRunner {
 
                 diagnostics?.log("User chose to swap files for destination symlink conflict.")
                 do {
-                    let replaced = try service.moveItemAndReplaceWithLink(
+                    let replaced = try runMoveAndReplace(
                         source: source,
-                        in: destination,
-                        kind: settings.symlinkKind,
+                        destination: destination,
+                        additionalScopedURLs: additionalScopedURLs,
                         replacesExistingDestinationSymlink: true
                     )
-                    try recents.remember(destination)
-                    diagnostics?.log("Remembered recent destination: \(destination.path)")
-                    diagnostics?.log("Moved item: \(replaced.movedItem.path)")
-                    diagnostics?.log("Created replacement link: \(replaced.original.path) -> \(replaced.targetPath)")
-                    showReplacementCompletion(replaced)
+                    try handleSuccessfulReplacement(replaced, destination: destination)
                 } catch {
                     diagnostics?.log("Failed swapping destination symlink: \(error.localizedDescription)")
                     showError(error)
@@ -299,6 +276,31 @@ final class LinkWorkflowRunner {
         }
     }
 
+    private func runMoveAndReplace(
+        source: URL,
+        destination: URL,
+        additionalScopedURLs: [URL],
+        replacesExistingDestinationSymlink: Bool
+    ) throws -> ReplacedItemSymlink {
+        try SecurityScopedAccess.withAccess(to: [source, destination] + additionalScopedURLs) {
+            diagnostics?.log("Moving \(source.path) to \(destination.path) and replacing original with a link.")
+            return try service.moveItemAndReplaceWithLink(
+                source: source,
+                in: destination,
+                kind: settings.symlinkKind,
+                replacesExistingDestinationSymlink: replacesExistingDestinationSymlink
+            )
+        }
+    }
+
+    private func handleSuccessfulReplacement(_ replaced: ReplacedItemSymlink, destination: URL) throws {
+        try recents.remember(destination)
+        diagnostics?.log("Remembered recent destination: \(destination.path)")
+        diagnostics?.log("Moved item: \(replaced.movedItem.path)")
+        diagnostics?.log("Created replacement link: \(replaced.original.path) -> \(replaced.targetPath)")
+        showReplacementCompletion(replaced)
+    }
+
     private func confirmDestinationSymlinkReplacement() -> Bool {
         let alert = NSAlert()
         alert.messageText = "Destination Already Contains a Link to the Same File"
@@ -309,15 +311,10 @@ final class LinkWorkflowRunner {
     }
 
     private func isDirectory(_ url: URL) -> Bool {
-        let didStart = url.startAccessingSecurityScopedResource()
-        defer {
-            if didStart {
-                url.stopAccessingSecurityScopedResource()
-            }
+        SecurityScopedAccess.withAccess(to: [url]) {
+            var isDirectory: ObjCBool = false
+            return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
         }
-
-        var isDirectory: ObjCBool = false
-        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
     private func showCompletion(_ created: [CreatedSymlink]) {
@@ -387,6 +384,19 @@ private enum LinkActionMode {
     case symlinkFromSelection
     case symlinkToSelectedFolder
     case moveSelectionAndReplaceWithSymlink
+}
+
+private enum SecurityScopedAccess {
+    static func withAccess<T>(to urls: [URL], _ body: () throws -> T) rethrows -> T {
+        let access = urls.map { $0.startAccessingSecurityScopedResource() }
+        defer {
+            for (url, didStart) in zip(urls, access) where didStart {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        return try body()
+    }
 }
 
 private enum LinksmithActionError: LocalizedError {

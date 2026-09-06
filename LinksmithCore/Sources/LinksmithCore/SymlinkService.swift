@@ -6,6 +6,11 @@ public enum SymlinkKind: String, Codable, Sendable {
     case absolute
 }
 
+public enum SourceValidationPolicy: Sendable {
+    case requireExistingSources
+    case allowUnresolvedSources
+}
+
 public struct CreatedSymlink: Equatable, Sendable {
     public let source: URL
     public let link: URL
@@ -192,7 +197,7 @@ public struct SymlinkService {
         to sources: [URL],
         in destination: URL,
         kind: SymlinkKind = .relative,
-        validatesSourcesExist: Bool = true
+        sourceValidation: SourceValidationPolicy = .requireExistingSources
     ) throws -> [CreatedSymlink] {
         guard sources.isEmpty == false else { throw LinksmithError.noSources }
 
@@ -203,7 +208,7 @@ public struct SymlinkService {
         }
 
         return try sources.map { source in
-            guard validatesSourcesExist == false || fileManager.fileExists(atPath: source.path) else {
+            guard sourceValidation == .allowUnresolvedSources || fileManager.fileExists(atPath: source.path) else {
                 throw LinksmithError.sourceDoesNotExist(source)
             }
 

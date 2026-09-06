@@ -48,13 +48,4 @@ struct PendingLinkActionStoreTests {
             #expect(store.consumeSelection().map(\.path) == ["/tmp/Fallback Selection"])
         }
     }
-
-    private func withDefaults(_ body: (UserDefaults) throws -> Void) throws {
-        let suiteName = "LinksmithCoreTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer {
-            defaults.removePersistentDomain(forName: suiteName)
-        }
-        try body(defaults)
-    }
 }
