@@ -16,6 +16,19 @@ struct PendingLinkActionStoreTests {
         }
     }
 
+    @Test func saveSelectionReplacesOlderPendingSelection() throws {
+        try withDefaults { defaults in
+            let store = PendingLinkActionStore(defaults: defaults)
+            let older = URL(fileURLWithPath: "/tmp/Older Selection")
+            let newer = URL(fileURLWithPath: "/tmp/Newer Selection")
+
+            try store.saveSelection([older])
+            try store.saveSelection([newer])
+
+            #expect(store.consumeSelection().map(\.path) == [newer.path])
+        }
+    }
+
     @Test func consumeSelectionSupportsPathOnlyPendingActions() throws {
         try withDefaults { defaults in
             let store = PendingLinkActionStore(defaults: defaults)

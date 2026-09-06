@@ -1,6 +1,6 @@
 # Linksmith
 
-Linksmith is a native macOS utility for creating and managing symbolic links directly from Finder.
+Linksmith is a native macOS utility for creating symbolic links directly from Finder.
 
 The project aims to provide a small, transparent, and trustworthy implementation built entirely with Apple's native technologies.
 
@@ -22,12 +22,13 @@ Linksmith is designed around a few principles:
 Linksmith currently provides a Finder Quick Action named **Create Symlink…**:
 
 - accepts one or more files or folders selected in Finder;
-- presents a destination folder chooser;
+- hands the Finder selection to the Linksmith menu bar app, which presents the workflow UI;
+- creates symbolic links for selected files or folders in a chosen destination folder;
 - when one folder is selected, can instead create links inside that folder after choosing the source items;
 - when one file is selected, can move that file to a chosen folder and replace the original with a symbolic link;
 - creates relative symbolic links by default;
 - switches requested relative links to absolute links when the source or destination is below a `.linksmith` marker boundary;
-- optionally creates absolute symbolic links through the host app setting;
+- optionally creates absolute symbolic links through the menu bar app setting;
 - remembers up to 10 recent destination folders;
 - stores persistent folder access as security-scoped bookmarks; and
 - handles naming conflicts with incrementing suffixes such as `report 2.pdf`.
@@ -45,14 +46,18 @@ Finder
 LinksmithAction
   │
   ▼
+Linksmith host app
+  │
+  ▼
 LinksmithCore
   │
   ▼
 Foundation / macOS filesystem
 ```
 
-`LinksmithAction` translates Finder input into file URLs and presents the destination chooser.
-`LinksmithCore` owns path generation, collision handling, symlink creation, shared settings, and recent-destination persistence.
+`LinksmithAction` translates Finder input into file URLs, stores a pending handoff in shared app-group storage, opens the containing app, and exits without editing Finder items.
+The Linksmith host app owns user interaction, including mode selection, folder and source pickers, recent destinations, and completion/error alerts.
+`LinksmithCore` owns path generation, collision handling, symlink creation, shared settings, pending handoff storage, debug log storage, and recent-destination persistence.
 The host app and extension share settings through the `group.com.praitk.Linksmith` App Group.
 
 ## Technology
@@ -112,7 +117,8 @@ xcodebuild \
 To run the core test suite:
 
 ```bash
-swift test --package-path LinksmithCore
+cd LinksmithCore
+swift test --disable-sandbox
 ```
 
 ### Using the Quick Action
@@ -120,11 +126,18 @@ swift test --package-path LinksmithCore
 1. Build and run the **Linksmith** scheme once.
 2. In Finder, select one or more files or folders.
 3. Choose **Quick Actions → Create Symlink…**.
-4. Select a destination folder.
+4. Complete the prompts in the Linksmith app.
+
+For one or more selected files or folders, choose the destination folder where links should be created.
 
 To create links inside a folder instead, select exactly one folder in Finder, choose **Quick Actions → Create Symlink…**, click **Create Links Here**, then choose the files or folders to link into it.
 
+To create a link to the selected folder itself, select exactly one folder in Finder, choose **Quick Actions → Create Symlink…**, click **Link to This Folder**, then choose the destination folder.
+
 To move a file and leave a symbolic link in its original location, select exactly one file in Finder, choose **Quick Actions → Create Symlink…**, click **Move and Replace with Link**, then choose the folder where the file should be moved.
+Linksmith will ask you to authorize the original folder before replacing the original file with a symbolic link.
+
+The menu bar app also lets you choose whether newly created links should prefer relative or absolute targets.
 
 ### Relative and absolute links
 
@@ -141,7 +154,7 @@ If the action is not visible during development, enable `LinksmithAction` in mac
 ## Project status
 
 Linksmith is in early development.
-The first end-to-end symbolic-link workflow is implemented and covered by tests for path generation, collision handling, multiple selections, and marker-based relative-versus-absolute links.
+The first end-to-end symbolic-link workflows are implemented and covered by tests for path generation, collision handling, multiple selections, pending Finder handoff storage, recent destinations, move-and-replace behavior, and marker-based relative-versus-absolute links.
 
 ## License
 

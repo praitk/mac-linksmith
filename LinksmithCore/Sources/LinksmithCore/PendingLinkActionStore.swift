@@ -19,6 +19,7 @@ public struct PendingLinkAction: Codable, Equatable, Sendable {
     }
 }
 
+/// Stores one Finder handoff at a time. A new selection replaces any older unconsumed selection.
 public final class PendingLinkActionStore: @unchecked Sendable {
     private enum Key { static let pendingAction = "pendingLinkAction" }
     private let defaults: UserDefaults
