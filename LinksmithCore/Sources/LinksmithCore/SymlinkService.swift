@@ -23,6 +23,26 @@ public struct CreatedSymlink: Equatable, Sendable {
     }
 }
 
+public struct LinkCreationPlan: Equatable, Sendable {
+    public let items: [LinkCreationPlanItem]
+
+    public init(items: [LinkCreationPlanItem]) {
+        self.items = items
+    }
+}
+
+public struct LinkCreationPlanItem: Equatable, Sendable {
+    public let source: URL
+    public let link: URL
+    public let targetPath: String
+
+    public init(source: URL, link: URL, targetPath: String) {
+        self.source = source
+        self.link = link
+        self.targetPath = targetPath
+    }
+}
+
 public struct ReplacedItemSymlink: Equatable, Sendable {
     public let original: URL
     public let movedItem: URL
@@ -171,24 +191,52 @@ public struct SymlinkService {
         in destination: URL,
         allowsDuplicateTargetLink: Bool = true
     ) throws -> URL {
-        let initial = destination.appendingPathComponent(source.lastPathComponent)
-        guard try isLinkPathAvailable(initial, for: source, allowsDuplicateTargetLink: allowsDuplicateTargetLink) == true else {
-            let name = source.deletingPathExtension().lastPathComponent
-            let pathExtension = source.pathExtension
-            var suffix = 2
+        var reservedPaths = Set<String>()
+        return try availableLinkURL(
+            for: source,
+            in: destination,
+            allowsDuplicateTargetLink: allowsDuplicateTargetLink,
+            reservedPaths: &reservedPaths
+        )
+    }
 
-            while true {
-                let candidateName = pathExtension.isEmpty
-                    ? "\(name) \(suffix)"
-                    : "\(name) \(suffix).\(pathExtension)"
-                let candidate = destination.appendingPathComponent(candidateName)
-                if try isLinkPathAvailable(candidate, for: source, allowsDuplicateTargetLink: allowsDuplicateTargetLink) {
-                    return candidate
-                }
-                suffix += 1
-            }
+    private func availableLinkURL(
+        for source: URL,
+        in destination: URL,
+        allowsDuplicateTargetLink: Bool,
+        reservedPaths: inout Set<String>
+    ) throws -> URL {
+        var candidate = destination.appendingPathComponent(source.lastPathComponent)
+        if try isLinkPathAvailable(
+            candidate,
+            for: source,
+            allowsDuplicateTargetLink: allowsDuplicateTargetLink,
+            reservedPaths: reservedPaths
+        ) {
+            reservedPaths.insert(candidate.standardizedFileURL.path)
+            return candidate
         }
-        return initial
+
+        let name = source.deletingPathExtension().lastPathComponent
+        let pathExtension = source.pathExtension
+        var suffix = 2
+
+        while true {
+            let candidateName = pathExtension.isEmpty
+                ? "\(name) \(suffix)"
+                : "\(name) \(suffix).\(pathExtension)"
+            candidate = destination.appendingPathComponent(candidateName)
+            if try isLinkPathAvailable(
+                candidate,
+                for: source,
+                allowsDuplicateTargetLink: allowsDuplicateTargetLink,
+                reservedPaths: reservedPaths
+            ) {
+                reservedPaths.insert(candidate.standardizedFileURL.path)
+                return candidate
+            }
+            suffix += 1
+        }
     }
 
     private func isLinkPathAvailable(
@@ -196,13 +244,27 @@ public struct SymlinkService {
         for source: URL,
         allowsDuplicateTargetLink: Bool
     ) throws -> Bool {
+        try isLinkPathAvailable(
+            url,
+            for: source,
+            allowsDuplicateTargetLink: allowsDuplicateTargetLink,
+            reservedPaths: []
+        )
+    }
+
+    private func isLinkPathAvailable(
+        _ url: URL,
+        for source: URL,
+        allowsDuplicateTargetLink: Bool,
+        reservedPaths: Set<String>
+    ) throws -> Bool {
         if let existingTarget = resolvedSymbolicLinkDestination(at: url),
            refersToSameFile(existingTarget, source),
            allowsDuplicateTargetLink == false {
             throw LinksmithError.destinationContainsLinkToSource(source, url)
         }
 
-        return isPathAvailable(url)
+        return reservedPaths.contains(url.standardizedFileURL.path) == false && isPathAvailable(url)
     }
 
     private func isPathAvailable(_ url: URL) -> Bool {
@@ -370,13 +432,13 @@ public struct SymlinkService {
     }
 
     @discardableResult
-    public func createLinks(
+    public func planLinks(
         to sources: [URL],
         in destination: URL,
         kind: SymlinkKind = .relative,
         sourceValidation: SourceValidationPolicy = .requireExistingSources,
         allowsDuplicateTargetLinks: Bool = true
-    ) throws -> [CreatedSymlink] {
+    ) throws -> LinkCreationPlan {
         guard sources.isEmpty == false else { throw LinksmithError.noSources }
 
         var isDirectory: ObjCBool = false
@@ -385,7 +447,8 @@ public struct SymlinkService {
             throw LinksmithError.destinationIsNotDirectory(destination)
         }
 
-        return try sources.map { source in
+        var reservedPaths = Set<String>()
+        let items = try sources.map { source in
             guard sourceValidation == .allowUnresolvedSources || fileManager.fileExists(atPath: source.path) else {
                 throw LinksmithError.sourceDoesNotExist(source)
             }
@@ -393,16 +456,44 @@ public struct SymlinkService {
             let link = try availableLinkURL(
                 for: source,
                 in: destination,
-                allowsDuplicateTargetLink: allowsDuplicateTargetLinks
+                allowsDuplicateTargetLink: allowsDuplicateTargetLinks,
+                reservedPaths: &reservedPaths
             )
             let target = targetPath(for: source, linkIn: destination, kind: kind)
-            do {
-                try fileManager.createSymbolicLink(atPath: link.path, withDestinationPath: target)
-            } catch {
-                throw LinksmithError.unableToCreateLink(link, error.localizedDescription)
-            }
-            return CreatedSymlink(source: source, link: link, targetPath: target)
+            return LinkCreationPlanItem(source: source, link: link, targetPath: target)
         }
+
+        return LinkCreationPlan(items: items)
+    }
+
+    @discardableResult
+    public func createLinks(from plan: LinkCreationPlan) throws -> [CreatedSymlink] {
+        try plan.items.map { item in
+            do {
+                try fileManager.createSymbolicLink(atPath: item.link.path, withDestinationPath: item.targetPath)
+            } catch {
+                throw LinksmithError.unableToCreateLink(item.link, error.localizedDescription)
+            }
+            return CreatedSymlink(source: item.source, link: item.link, targetPath: item.targetPath)
+        }
+    }
+
+    @discardableResult
+    public func createLinks(
+        to sources: [URL],
+        in destination: URL,
+        kind: SymlinkKind = .relative,
+        sourceValidation: SourceValidationPolicy = .requireExistingSources,
+        allowsDuplicateTargetLinks: Bool = true
+    ) throws -> [CreatedSymlink] {
+        let plan = try planLinks(
+            to: sources,
+            in: destination,
+            kind: kind,
+            sourceValidation: sourceValidation,
+            allowsDuplicateTargetLinks: allowsDuplicateTargetLinks
+        )
+        return try createLinks(from: plan)
     }
 
     @discardableResult

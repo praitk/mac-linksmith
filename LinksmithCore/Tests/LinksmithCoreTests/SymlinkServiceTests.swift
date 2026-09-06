@@ -114,6 +114,51 @@ struct SymlinkServiceTests {
         }
     }
 
+    @Test func planLinksReservesNamesForBatchItemsWithSameBasename() throws {
+        try withTemporaryDirectory { root in
+            let sources = [
+                root.appendingPathComponent("one/report.pdf"),
+                root.appendingPathComponent("two/report.pdf"),
+            ]
+            let destination = root.appendingPathComponent("links", isDirectory: true)
+            for source in sources {
+                try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try Data(source.path.utf8).write(to: source)
+            }
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+
+            let plan = try SymlinkService().planLinks(to: sources, in: destination)
+
+            #expect(plan.items.map { $0.link.lastPathComponent } == ["report.pdf", "report 2.pdf"])
+            #expect(FileManager.default.fileExists(atPath: destination.appendingPathComponent("report.pdf").path) == false)
+            #expect(FileManager.default.fileExists(atPath: destination.appendingPathComponent("report 2.pdf").path) == false)
+        }
+    }
+
+    @Test func createLinksDoesNotCreateEarlierBatchLinksWhenLaterSourceHasDuplicateTargetConflict() throws {
+        try withTemporaryDirectory { root in
+            let first = root.appendingPathComponent("sources/one.txt")
+            let second = root.appendingPathComponent("sources/two.txt")
+            let destination = root.appendingPathComponent("links", isDirectory: true)
+            let existingLink = destination.appendingPathComponent("two.txt")
+            try FileManager.default.createDirectory(at: first.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Data("one".utf8).write(to: first)
+            try Data("two".utf8).write(to: second)
+            try FileManager.default.createSymbolicLink(atPath: existingLink.path, withDestinationPath: second.path)
+
+            #expect(throws: LinksmithError.destinationContainsLinkToSource(second, existingLink)) {
+                try SymlinkService().createLinks(
+                    to: [first, second],
+                    in: destination,
+                    allowsDuplicateTargetLinks: false
+                )
+            }
+            #expect(FileManager.default.fileExists(atPath: destination.appendingPathComponent("one.txt").path) == false)
+            #expect(try FileManager.default.destinationOfSymbolicLink(atPath: existingLink.path) == second.path)
+        }
+    }
+
     @Test func createLinksHonorsRelativeAndAbsoluteKinds() throws {
         try withTemporaryDirectory { root in
             let source = root.appendingPathComponent("source.txt")

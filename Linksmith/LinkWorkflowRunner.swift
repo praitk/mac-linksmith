@@ -222,14 +222,16 @@ final class LinkWorkflowRunner {
     ) {
         do {
             let created = try SecurityScopedAccess.withAccess(to: sources + [destination]) {
-                diagnostics?.log("Creating \(sources.count) link(s) in \(destination.path).")
-                return try service.createLinks(
+                diagnostics?.log("Planning \(sources.count) link(s) in \(destination.path).")
+                let plan = try service.planLinks(
                     to: sources,
                     in: destination,
                     kind: settings.symlinkKind,
                     sourceValidation: .allowUnresolvedSources,
                     allowsDuplicateTargetLinks: allowsDuplicateTargetLinks
                 )
+                diagnostics?.log("Creating \(plan.items.count) planned link(s) in \(destination.path).")
+                return try service.createLinks(from: plan)
             }
             if rememberDestination {
                 try recents.remember(destination)
