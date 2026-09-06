@@ -78,6 +78,255 @@ struct SymlinkServiceTests {
         }
     }
 
+    @Test func moveItemAndReplaceWithLinkMovesFileAndCreatesRelativeSymlinkAtOriginalPath() throws {
+        try withTemporaryDirectory { root in
+            let source = root.appendingPathComponent("source/report.txt")
+            let destination = root.appendingPathComponent("moved", isDirectory: true)
+            try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Data("contents".utf8).write(to: source)
+
+            let replaced = try SymlinkService().moveItemAndReplaceWithLink(source: source, in: destination)
+            let linkTarget = try FileManager.default.destinationOfSymbolicLink(atPath: source.path)
+
+            #expect(replaced.original == source)
+            #expect(replaced.movedItem == destination.appendingPathComponent("report.txt"))
+            #expect(replaced.targetPath == "../moved/report.txt")
+            #expect(linkTarget == "../moved/report.txt")
+            #expect(try Data(contentsOf: replaced.movedItem) == Data("contents".utf8))
+        }
+    }
+
+    @Test func moveItemAndReplaceWithLinkRejectsDestinationNameCollisions() throws {
+        try withTemporaryDirectory { root in
+            let source = root.appendingPathComponent("source/report.txt")
+            let destination = root.appendingPathComponent("moved", isDirectory: true)
+            let existing = destination.appendingPathComponent("report.txt")
+            try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Data("source".utf8).write(to: source)
+            try Data("existing".utf8).write(to: existing)
+
+            #expect(throws: LinksmithError.destinationAlreadyContainsItemNamed(existing)) {
+                try SymlinkService().moveItemAndReplaceWithLink(source: source, in: destination)
+            }
+            #expect(try Data(contentsOf: source) == Data("source".utf8))
+            #expect(try Data(contentsOf: existing) == Data("existing".utf8))
+        }
+    }
+
+    @Test func moveItemAndReplaceWithLinkRejectsDestinationFolderNameCollisions() throws {
+        try withTemporaryDirectory { root in
+            let source = root.appendingPathComponent("source/report.txt")
+            let destination = root.appendingPathComponent("moved", isDirectory: true)
+            let existing = destination.appendingPathComponent("report.txt", isDirectory: true)
+            try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: existing, withIntermediateDirectories: true)
+            try Data("source".utf8).write(to: source)
+
+            #expect(throws: LinksmithError.destinationAlreadyContainsItemNamed(existing)) {
+                try SymlinkService().moveItemAndReplaceWithLink(source: source, in: destination)
+            }
+            #expect(try Data(contentsOf: source) == Data("source".utf8))
+            #expect(FileManager.default.fileExists(atPath: existing.path))
+        }
+    }
+
+    @Test func moveItemAndReplaceWithLinkRejectsDestinationBrokenSymlinkNameCollisions() throws {
+        try withTemporaryDirectory { root in
+            let source = root.appendingPathComponent("source/report.txt")
+            let destination = root.appendingPathComponent("moved", isDirectory: true)
+            let existingLink = destination.appendingPathComponent("report.txt")
+            try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Data("source".utf8).write(to: source)
+            try FileManager.default.createSymbolicLink(atPath: existingLink.path, withDestinationPath: "missing.txt")
+
+            #expect(throws: LinksmithError.destinationAlreadyContainsItemNamed(existingLink)) {
+                try SymlinkService().moveItemAndReplaceWithLink(source: source, in: destination)
+            }
+            #expect(try Data(contentsOf: source) == Data("source".utf8))
+            #expect(try FileManager.default.destinationOfSymbolicLink(atPath: existingLink.path) == "missing.txt")
+        }
+    }
+
+    @Test func moveItemAndReplaceWithLinkRejectsDestinationSymlinkPointingToSourceByDefault() throws {
+        try withTemporaryDirectory { root in
+            let source = root.appendingPathComponent("source/report.txt")
+            let destination = root.appendingPathComponent("moved", isDirectory: true)
+            let existingLink = destination.appendingPathComponent("report.txt")
+            try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Data("source".utf8).write(to: source)
+            try FileManager.default.createSymbolicLink(atPath: existingLink.path, withDestinationPath: source.path)
+
+            #expect(throws: LinksmithError.destinationContainsLinkToSource(source, existingLink)) {
+                try SymlinkService().moveItemAndReplaceWithLink(source: source, in: destination)
+            }
+            #expect(try FileManager.default.destinationOfSymbolicLink(atPath: existingLink.path) == source.path)
+            #expect(try Data(contentsOf: source) == Data("source".utf8))
+        }
+    }
+
+    @Test func moveItemAndReplaceWithLinkDetectsRelativeDestinationSymlinkPointingToSource() throws {
+        try withTemporaryDirectory { root in
+            let source = root.appendingPathComponent("source/report.txt")
+            let destination = root.appendingPathComponent("moved", isDirectory: true)
+            let existingLink = destination.appendingPathComponent("report.txt")
+            try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Data("source".utf8).write(to: source)
+            try FileManager.default.createSymbolicLink(atPath: existingLink.path, withDestinationPath: "../source/report.txt")
+
+            #expect(throws: LinksmithError.destinationContainsLinkToSource(source, existingLink)) {
+                try SymlinkService().moveItemAndReplaceWithLink(source: source, in: destination)
+            }
+            #expect(try FileManager.default.destinationOfSymbolicLink(atPath: existingLink.path) == "../source/report.txt")
+            #expect(try Data(contentsOf: source) == Data("source".utf8))
+        }
+    }
+
+    @Test func moveItemAndReplaceWithLinkCanReplaceDestinationSymlinkPointingToSource() throws {
+        try withTemporaryDirectory { root in
+            let source = root.appendingPathComponent("source/report.txt")
+            let destination = root.appendingPathComponent("moved", isDirectory: true)
+            let existingLink = destination.appendingPathComponent("report.txt")
+            try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Data("source".utf8).write(to: source)
+            try FileManager.default.createSymbolicLink(atPath: existingLink.path, withDestinationPath: source.path)
+
+            let replaced = try SymlinkService().moveItemAndReplaceWithLink(
+                source: source,
+                in: destination,
+                replacesExistingDestinationSymlink: true
+            )
+
+            #expect(replaced.movedItem == existingLink)
+            #expect(try Data(contentsOf: existingLink) == Data("source".utf8))
+            #expect(try FileManager.default.destinationOfSymbolicLink(atPath: source.path) == "../moved/report.txt")
+        }
+    }
+
+    @Test func moveItemAndReplaceWithLinkCanReplaceRelativeDestinationSymlinkPointingToSource() throws {
+        try withTemporaryDirectory { root in
+            let source = root.appendingPathComponent("source/report.txt")
+            let destination = root.appendingPathComponent("moved", isDirectory: true)
+            let existingLink = destination.appendingPathComponent("report.txt")
+            try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Data("source".utf8).write(to: source)
+            try FileManager.default.createSymbolicLink(atPath: existingLink.path, withDestinationPath: "../source/report.txt")
+
+            let replaced = try SymlinkService().moveItemAndReplaceWithLink(
+                source: source,
+                in: destination,
+                replacesExistingDestinationSymlink: true
+            )
+
+            #expect(replaced.movedItem == existingLink)
+            #expect(try Data(contentsOf: existingLink) == Data("source".utf8))
+            #expect(try FileManager.default.destinationOfSymbolicLink(atPath: source.path) == "../moved/report.txt")
+        }
+    }
+
+    @Test func moveItemAndReplaceWithLinkRejectsDestinationSymlinkPointingElsewhere() throws {
+        try withTemporaryDirectory { root in
+            let source = root.appendingPathComponent("source/report.txt")
+            let destination = root.appendingPathComponent("moved", isDirectory: true)
+            let other = root.appendingPathComponent("other/report.txt")
+            let existingLink = destination.appendingPathComponent("report.txt")
+            try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: other.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("source".utf8).write(to: source)
+            try Data("other".utf8).write(to: other)
+            try FileManager.default.createSymbolicLink(atPath: existingLink.path, withDestinationPath: other.path)
+
+            #expect(throws: LinksmithError.destinationAlreadyContainsItemNamed(existingLink)) {
+                try SymlinkService().moveItemAndReplaceWithLink(source: source, in: destination)
+            }
+            #expect(try Data(contentsOf: source) == Data("source".utf8))
+            #expect(try FileManager.default.destinationOfSymbolicLink(atPath: existingLink.path) == other.path)
+        }
+    }
+
+    @Test func moveItemAndReplaceWithLinkRejectsSourceAlreadyLinkedIntoDestination() throws {
+        try withTemporaryDirectory { root in
+            let destination = root.appendingPathComponent("moved", isDirectory: true)
+            let target = destination.appendingPathComponent("report.txt")
+            let source = root.appendingPathComponent("source/report.txt")
+            try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Data("target".utf8).write(to: target)
+            try FileManager.default.createSymbolicLink(atPath: source.path, withDestinationPath: target.path)
+
+            #expect(throws: LinksmithError.sourceAlreadyLinksToDestination(source, target)) {
+                try SymlinkService().moveItemAndReplaceWithLink(source: source, in: destination)
+            }
+            #expect(try FileManager.default.destinationOfSymbolicLink(atPath: source.path) == target.path)
+            #expect(try Data(contentsOf: target) == Data("target".utf8))
+        }
+    }
+
+    @Test func moveItemAndReplaceWithLinkRejectsMissingSource() throws {
+        try withTemporaryDirectory { root in
+            let source = root.appendingPathComponent("missing.txt")
+            let destination = root.appendingPathComponent("moved", isDirectory: true)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+
+            #expect(throws: LinksmithError.sourceDoesNotExist(source)) {
+                try SymlinkService().moveItemAndReplaceWithLink(source: source, in: destination)
+            }
+        }
+    }
+
+    @Test func moveItemAndReplaceWithLinkRejectsFileDestination() throws {
+        try withTemporaryDirectory { root in
+            let source = root.appendingPathComponent("source.txt")
+            let destination = root.appendingPathComponent("destination.txt")
+            try Data("source".utf8).write(to: source)
+            try Data("destination".utf8).write(to: destination)
+
+            #expect(throws: LinksmithError.destinationIsNotDirectory(destination)) {
+                try SymlinkService().moveItemAndReplaceWithLink(source: source, in: destination)
+            }
+            #expect(try Data(contentsOf: source) == Data("source".utf8))
+            #expect(try Data(contentsOf: destination) == Data("destination".utf8))
+        }
+    }
+
+    @Test func moveItemAndReplaceWithLinkHonorsAbsoluteKind() throws {
+        try withTemporaryDirectory { root in
+            let source = root.appendingPathComponent("source.txt")
+            let destination = root.appendingPathComponent("moved", isDirectory: true)
+            try Data().write(to: source)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+
+            let replaced = try SymlinkService().moveItemAndReplaceWithLink(
+                source: source,
+                in: destination,
+                kind: .absolute
+            )
+
+            #expect(replaced.targetPath == replaced.movedItem.path)
+            #expect(try FileManager.default.destinationOfSymbolicLink(atPath: source.path) == replaced.movedItem.path)
+        }
+    }
+
+    @Test func moveItemAndReplaceWithLinkRejectsFolderSource() throws {
+        try withTemporaryDirectory { root in
+            let source = root.appendingPathComponent("source", isDirectory: true)
+            let destination = root.appendingPathComponent("moved", isDirectory: true)
+            try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+
+            #expect(throws: LinksmithError.sourceMustBeFile(source)) {
+                try SymlinkService().moveItemAndReplaceWithLink(source: source, in: destination)
+            }
+        }
+    }
+
     @Test func createLinksRejectsEmptySources() throws {
         try withTemporaryDirectory { root in
             let destination = root.appendingPathComponent("links", isDirectory: true)

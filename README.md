@@ -24,13 +24,14 @@ Linksmith currently provides a Finder Quick Action named **Create Symlink…**:
 - accepts one or more files or folders selected in Finder;
 - presents a destination folder chooser;
 - when one folder is selected, can instead create links inside that folder after choosing the source items;
+- when one file is selected, can move that file to a chosen folder and replace the original with a symbolic link;
 - creates relative symbolic links by default;
 - optionally creates absolute symbolic links through the host app setting;
 - remembers up to 10 recent destination folders;
 - stores persistent folder access as security-scoped bookmarks; and
 - handles naming conflicts with incrementing suffixes such as `report 2.pdf`.
 
-Move-and-replace operations and hard links are not implemented.
+Hard links are not implemented.
 
 ## Architecture
 
@@ -119,6 +120,8 @@ swift test --package-path LinksmithCore
 4. Select a destination folder.
 
 To create links inside a folder instead, select exactly one folder in Finder, choose **Quick Actions → Create Symlink…**, click **Create Links Here**, then choose the files or folders to link into it.
+
+To move a file and leave a symbolic link in its original location, select exactly one file in Finder, choose **Quick Actions → Create Symlink…**, click **Move and Replace with Link**, then choose the folder where the file should be moved.
 
 If the action is not visible during development, enable `LinksmithAction` in macOS extension settings or Finder's Quick Actions customization interface, then relaunch Finder.
 

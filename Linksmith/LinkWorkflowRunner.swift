@@ -33,14 +33,25 @@ final class LinkWorkflowRunner {
         case .symlinkToSelectedFolder:
             diagnostics?.log("Mode selected: To This Folder.")
             createLinksToSelectedFolder(selection[0])
+        case .moveSelectionAndReplaceWithSymlink:
+            diagnostics?.log("Mode selected: Move and Replace with Link.")
+            moveSelectionAndReplaceWithSymlink(selection[0])
         }
     }
 
     private func chooseMode(for selection: [URL]) -> LinkActionMode? {
-        guard selection.count == 1, isDirectory(selection[0]) else {
+        guard selection.count == 1 else {
             return .symlinkFromSelection
         }
 
+        if isDirectory(selection[0]) {
+            return chooseSingleFolderMode()
+        }
+
+        return chooseSingleFileMode()
+    }
+
+    private func chooseSingleFolderMode() -> LinkActionMode? {
         let alert = NSAlert()
         alert.messageText = "Create Symbolic Links"
         alert.informativeText = "Create symbolic links inside the selected folder, or create a symbolic link to the folder itself."
@@ -58,9 +69,30 @@ final class LinkWorkflowRunner {
         }
     }
 
+    private func chooseSingleFileMode() -> LinkActionMode? {
+        let alert = NSAlert()
+        alert.messageText = "Create Symbolic Link"
+        alert.informativeText = "Create a symbolic link to the selected file, or move the file to a folder and replace it with a symbolic link."
+        alert.addButton(withTitle: "Create Link Elsewhere")
+        alert.addButton(withTitle: "Move and Replace with Link")
+        alert.addButton(withTitle: "Cancel")
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            return .symlinkFromSelection
+        case .alertSecondButtonReturn:
+            return .moveSelectionAndReplaceWithSymlink
+        default:
+            return nil
+        }
+    }
+
     private func createLinksFromSelection(_ sources: [URL]) {
         diagnostics?.log("Presenting destination chooser for \(sources.count) source item(s).")
-        guard let destination = chooseDestination() else {
+        guard let destination = chooseDestination(
+            message: "Choose where symbolic links should be created.",
+            prompt: "Create Links"
+        ) else {
             diagnostics?.log("User cancelled destination chooser.")
             return
         }
@@ -84,11 +116,29 @@ final class LinkWorkflowRunner {
         createLinks(to: sources, in: destination, rememberDestination: false)
     }
 
-    private func chooseDestination() -> URL? {
+    private func moveSelectionAndReplaceWithSymlink(_ source: URL) {
+        diagnostics?.log("Presenting move destination chooser for: \(source.path)")
+        guard let destination = chooseDestination(
+            message: "Choose where the file should be moved before Linksmith replaces it with a symbolic link.",
+            prompt: "Move File"
+        ) else {
+            diagnostics?.log("User cancelled move destination chooser.")
+            return
+        }
+
+        guard let originalFolder = authorizeOriginalFolder(for: source) else {
+            diagnostics?.log("User cancelled original folder authorization.")
+            return
+        }
+
+        moveAndReplace(source: source, destination: destination, additionalScopedURLs: [originalFolder])
+    }
+
+    private func chooseDestination(message: String, prompt: String) -> URL? {
         let panel = NSOpenPanel()
         panel.title = "APP HANDOFF - Choose Destination Folder"
-        panel.message = "Choose where symbolic links should be created."
-        panel.prompt = "Create Links"
+        panel.message = message
+        panel.prompt = prompt
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
@@ -134,6 +184,30 @@ final class LinkWorkflowRunner {
         return panel.runModal() == .OK ? panel.urls : nil
     }
 
+    private func authorizeOriginalFolder(for source: URL) -> URL? {
+        let originalFolder = source.deletingLastPathComponent().standardizedFileURL
+        let panel = NSOpenPanel()
+        panel.title = "APP HANDOFF - Authorize Original Folder"
+        panel.message = "Choose \(originalFolder.lastPathComponent) so Linksmith can replace the original file with a symbolic link."
+        panel.prompt = "Authorize"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = false
+        panel.directoryURL = originalFolder
+
+        guard panel.runModal() == .OK, let selected = panel.url?.standardizedFileURL else {
+            return nil
+        }
+
+        guard selected == originalFolder else {
+            showError(LinksmithActionError.originalFolderAuthorizationMismatch(originalFolder))
+            return nil
+        }
+
+        return selected
+    }
+
     private func createLinks(to sources: [URL], in destination: URL, rememberDestination: Bool) {
         let scopedURLs = sources + [destination]
         let access = scopedURLs.map { $0.startAccessingSecurityScopedResource() }
@@ -158,11 +232,80 @@ final class LinkWorkflowRunner {
             created.forEach { item in
                 diagnostics?.log("Created link: \(item.link.path) -> \(item.targetPath)")
             }
-            showCompletion(createdCount: created.count)
+            showCompletion(created)
         } catch {
             diagnostics?.log("Failed creating links: \(error.localizedDescription)")
             showError(error)
         }
+    }
+
+    private func moveAndReplace(
+        source: URL,
+        destination: URL,
+        additionalScopedURLs: [URL] = [],
+        replacesExistingDestinationSymlink: Bool = false
+    ) {
+        let scopedURLs = [source, destination] + additionalScopedURLs
+        let access = scopedURLs.map { $0.startAccessingSecurityScopedResource() }
+        defer {
+            for (url, didStart) in zip(scopedURLs, access) where didStart {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        do {
+            diagnostics?.log("Moving \(source.path) to \(destination.path) and replacing original with a link.")
+            let replaced = try service.moveItemAndReplaceWithLink(
+                source: source,
+                in: destination,
+                kind: settings.symlinkKind,
+                replacesExistingDestinationSymlink: replacesExistingDestinationSymlink
+            )
+            try recents.remember(destination)
+            diagnostics?.log("Remembered recent destination: \(destination.path)")
+            diagnostics?.log("Moved item: \(replaced.movedItem.path)")
+            diagnostics?.log("Created replacement link: \(replaced.original.path) -> \(replaced.targetPath)")
+            showReplacementCompletion(replaced)
+        } catch {
+            if let linkConflict = error as? LinksmithError,
+               case .destinationContainsLinkToSource = linkConflict {
+                guard confirmDestinationSymlinkReplacement() else {
+                    diagnostics?.log("User cancelled destination symlink swap.")
+                    return
+                }
+
+                diagnostics?.log("User chose to swap files for destination symlink conflict.")
+                do {
+                    let replaced = try service.moveItemAndReplaceWithLink(
+                        source: source,
+                        in: destination,
+                        kind: settings.symlinkKind,
+                        replacesExistingDestinationSymlink: true
+                    )
+                    try recents.remember(destination)
+                    diagnostics?.log("Remembered recent destination: \(destination.path)")
+                    diagnostics?.log("Moved item: \(replaced.movedItem.path)")
+                    diagnostics?.log("Created replacement link: \(replaced.original.path) -> \(replaced.targetPath)")
+                    showReplacementCompletion(replaced)
+                } catch {
+                    diagnostics?.log("Failed swapping destination symlink: \(error.localizedDescription)")
+                    showError(error)
+                }
+                return
+            }
+
+            diagnostics?.log("Failed moving and replacing with link: \(error.localizedDescription)")
+            showError(error)
+        }
+    }
+
+    private func confirmDestinationSymlinkReplacement() -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Destination Already Contains a Link to the Same File"
+        alert.informativeText = "The destination contains a symbolic link to the selected file. Swap files by replacing that destination link with the moved file and creating a new link at the original location?"
+        alert.addButton(withTitle: "Swap Files")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     private func isDirectory(_ url: URL) -> Bool {
@@ -177,10 +320,20 @@ final class LinkWorkflowRunner {
         return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
-    private func showCompletion(createdCount: Int) {
+    private func showCompletion(_ created: [CreatedSymlink]) {
+        let content = LinkCompletionAlertContent.createdLinks(created)
         let alert = NSAlert()
-        alert.messageText = "Links Created"
-        alert.informativeText = "Created \(createdCount) symbolic \(createdCount == 1 ? "link" : "links")."
+        alert.messageText = content.message
+        alert.informativeText = content.informativeText
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    private func showReplacementCompletion(_ replaced: ReplacedItemSymlink) {
+        let content = LinkCompletionAlertContent.replacedItem(replaced)
+        let alert = NSAlert()
+        alert.messageText = content.message
+        alert.informativeText = content.informativeText
         alert.addButton(withTitle: "OK")
         alert.runModal()
     }
@@ -191,18 +344,55 @@ final class LinkWorkflowRunner {
     }
 }
 
+struct LinkCompletionAlertContent: Equatable {
+    let message: String
+    let informativeText: String
+
+    static func createdLinks(_ created: [CreatedSymlink]) -> LinkCompletionAlertContent {
+        if let link = created.onlyElement?.link {
+            return LinkCompletionAlertContent(
+                message: "Link Created",
+                informativeText: "Created symbolic link: \(link.lastPathComponent)."
+            )
+        }
+
+        let names = created.map { $0.link.lastPathComponent }.joined(separator: "\n")
+        return LinkCompletionAlertContent(
+            message: "Links Created",
+            informativeText: "Created \(created.count) symbolic links:\n\(names)"
+        )
+    }
+
+    static func replacedItem(_ replaced: ReplacedItemSymlink) -> LinkCompletionAlertContent {
+        LinkCompletionAlertContent(
+            message: "File Moved",
+            informativeText: "Moved \(replaced.movedItem.lastPathComponent) and created symbolic link: \(replaced.original.lastPathComponent)."
+        )
+    }
+}
+
+private extension Collection {
+    var onlyElement: Element? {
+        count == 1 ? first : nil
+    }
+}
+
 private enum LinkActionMode {
     case symlinkFromSelection
     case symlinkToSelectedFolder
+    case moveSelectionAndReplaceWithSymlink
 }
 
 private enum LinksmithActionError: LocalizedError {
     case destinationMustBeSingleFolder
+    case originalFolderAuthorizationMismatch(URL)
 
     var errorDescription: String? {
         switch self {
         case .destinationMustBeSingleFolder:
             "Select one folder to create symbolic links into."
+        case .originalFolderAuthorizationMismatch(let folder):
+            "Choose the original folder to continue: \(folder.path)"
         }
     }
 }

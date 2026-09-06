@@ -6,5 +6,7 @@
 	<array>
 		<string>group.com.praitk.Linksmith</string>
 	</array>
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
 </dict>
 </plist>
