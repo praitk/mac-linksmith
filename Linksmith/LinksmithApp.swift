@@ -9,9 +9,14 @@ import SwiftUI
 
 @main
 struct LinksmithApp: App {
+    @NSApplicationDelegateAdaptor(LinksmithAppDelegate.self) private var appDelegate
+
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        MenuBarExtra("Linksmith", systemImage: "link") {
+            ContentView {
+                appDelegate.showDebugWindow()
+            }
         }
+        .menuBarExtraStyle(.window)
     }
 }

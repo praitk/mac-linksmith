@@ -8,44 +8,103 @@
 import AppKit
 import Foundation
 import LinksmithCore
+import OSLog
 
 @objc(ActionRequestHandler)
 final class ActionRequestHandler: NSObject, NSExtensionRequestHandling {
-    private let settings = SharedSettings()
-    private let recents = RecentDestinationStore()
-    private let service = SymlinkService()
+    private static let logger = Logger(subsystem: "com.praitk.Linksmith", category: "LinksmithAction")
+    private let pendingActions = PendingLinkActionStore()
+    private let debugLog = DebugLogStore()
 
     func beginRequest(with context: NSExtensionContext) {
-        FinderSelectionLoader.load(from: context) { [weak self] result in
+        log("Non-UI extension handler started.")
+        log("Extension build: \(buildDescription)")
+        FinderSelectionLoader.load(from: context) { [weak self, context] result in
             DispatchQueue.main.async {
-                guard let self else { return }
+                guard let self else {
+                    context.cancelRequest(withError: LinksmithActionError.extensionContextUnavailable)
+                    return
+                }
                 switch result {
-                case .failure(let error): context.cancelRequest(withError: error)
-                case .success(let sources): self.createLinks(for: sources, context: context)
+                case .failure(let error):
+                    self.cancel(context, with: error)
+                case .success(let selection):
+                    self.handOff(selection: selection, context: context)
                 }
             }
         }
     }
 
     @MainActor
-    private func createLinks(for sources: [URL], context: NSExtensionContext) {
-        guard let destination = DestinationChooser(recentURLs: recents.resolvedURLs()).choose() else {
-            context.cancelRequest(withError: CocoaError(.userCancelled))
-            return
-        }
-        let scopedURLs = sources + [destination]
-        let access = scopedURLs.map { $0.startAccessingSecurityScopedResource() }
-        defer {
-            for (url, didStart) in zip(scopedURLs, access) where didStart {
-                url.stopAccessingSecurityScopedResource()
-            }
-        }
+    private func handOff(selection: [URL], context: NSExtensionContext) {
         do {
-            _ = try service.createLinks(to: sources, in: destination, kind: settings.symlinkKind)
-            try recents.remember(destination)
-            context.completeRequest(returningItems: [], completionHandler: nil)
+            try pendingActions.saveSelection(selection)
+            log("Saved pending handoff with \(selection.count) item(s).")
+            openContainingApp()
+            finishHandoffWithoutEditingFinderItems(context)
         } catch {
-            context.cancelRequest(withError: error)
+            cancel(context, with: error)
         }
     }
+
+    private func openContainingApp() {
+        let appURL = Bundle.main.bundleURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        log("Opening containing app at: \(appURL.path)")
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        configuration.allowsRunningApplicationSubstitution = false
+        let debugLog = debugLog
+        NSWorkspace.shared.openApplication(at: appURL, configuration: configuration) { app, error in
+            if let error {
+                Self.logger.error("Failed opening containing app: \(error.localizedDescription)")
+                debugLog.append("Failed opening containing app: \(error.localizedDescription)", process: "Extension")
+            } else {
+                Self.logger.info("Opened containing app: \(app?.bundleIdentifier ?? "unknown")")
+                debugLog.append("Opened containing app: \(app?.bundleIdentifier ?? "unknown")", process: "Extension")
+            }
+        }
+    }
+
+    private func finishHandoffWithoutEditingFinderItems(_ context: NSExtensionContext) {
+        let error = NSError(domain: NSCocoaErrorDomain, code: NSUserCancelledError)
+        Self.logger.info("Cancelling Finder request after successful handoff so Finder preserves original items.")
+        log("Cancelling Finder request after handoff; Linksmith app owns the workflow now.")
+        context.cancelRequest(withError: error)
+    }
+
+    private func cancel(_ context: NSExtensionContext, with error: Error) {
+        Self.logger.error("Cancelling Linksmith action: \(error.localizedDescription)")
+        log("Cancelling Finder extension request: \(error.localizedDescription)")
+        context.cancelRequest(withError: error)
+    }
+
+    private func log(_ message: String) {
+        debugLog.append(message, process: "Extension")
+    }
+
+    private var buildDescription: String {
+        let bundle = Bundle.main
+        let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+        let build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
+        let timestamp = executableTimestamp.map(Self.timestampFormatter.string(from:)) ?? "unknown"
+        return "Version \(version) (\(build)) - built \(timestamp)"
+    }
+
+    private var executableTimestamp: Date? {
+        guard let executableURL = Bundle.main.executableURL,
+              let values = try? executableURL.resourceValues(forKeys: [.contentModificationDateKey]) else {
+            return nil
+        }
+        return values.contentModificationDate
+    }
+
+    private static let timestampFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .medium
+        return formatter
+    }()
 }

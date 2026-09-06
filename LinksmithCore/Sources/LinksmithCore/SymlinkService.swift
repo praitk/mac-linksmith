@@ -45,7 +45,7 @@ public struct SymlinkService {
 
     public func availableLinkURL(for source: URL, in destination: URL) -> URL {
         let initial = destination.appendingPathComponent(source.lastPathComponent)
-        guard fileManager.fileExists(atPath: initial.path) == false else {
+        guard isPathAvailable(initial) == true else {
             let name = source.deletingPathExtension().lastPathComponent
             let pathExtension = source.pathExtension
             var suffix = 2
@@ -55,7 +55,7 @@ public struct SymlinkService {
                     ? "\(name) \(suffix)"
                     : "\(name) \(suffix).\(pathExtension)"
                 let candidate = destination.appendingPathComponent(candidateName)
-                if fileManager.fileExists(atPath: candidate.path) == false {
+                if isPathAvailable(candidate) {
                     return candidate
                 }
                 suffix += 1
@@ -64,11 +64,20 @@ public struct SymlinkService {
         return initial
     }
 
+    private func isPathAvailable(_ url: URL) -> Bool {
+        if fileManager.fileExists(atPath: url.path) {
+            return false
+        }
+
+        return (try? fileManager.destinationOfSymbolicLink(atPath: url.path)) == nil
+    }
+
     @discardableResult
     public func createLinks(
         to sources: [URL],
         in destination: URL,
-        kind: SymlinkKind = .relative
+        kind: SymlinkKind = .relative,
+        validatesSourcesExist: Bool = true
     ) throws -> [CreatedSymlink] {
         guard sources.isEmpty == false else { throw LinksmithError.noSources }
 
@@ -79,7 +88,7 @@ public struct SymlinkService {
         }
 
         return try sources.map { source in
-            guard fileManager.fileExists(atPath: source.path) else {
+            guard validatesSourcesExist == false || fileManager.fileExists(atPath: source.path) else {
                 throw LinksmithError.sourceDoesNotExist(source)
             }
 

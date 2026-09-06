@@ -27,6 +27,23 @@ struct SymlinkServiceTests {
         }
     }
 
+    @Test func collisionTreatsBrokenSymlinkAsOccupied() throws {
+        try withTemporaryDirectory { root in
+            let source = root.appendingPathComponent("source/report.pdf")
+            let destination = root.appendingPathComponent("links", isDirectory: true)
+            try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Data().write(to: source)
+            try FileManager.default.createSymbolicLink(
+                atPath: destination.appendingPathComponent("report.pdf").path,
+                withDestinationPath: "missing.pdf"
+            )
+
+            let result = SymlinkService().availableLinkURL(for: source, in: destination)
+            #expect(result.lastPathComponent == "report 2.pdf")
+        }
+    }
+
     @Test func createsLinksForMultipleSelections() throws {
         try withTemporaryDirectory { root in
             let sources = ["one.txt", "two.txt"].map { root.appendingPathComponent("sources/\($0)") }
@@ -58,6 +75,42 @@ struct SymlinkServiceTests {
             let absolute = try service.createLinks(to: [source], in: absoluteDestination, kind: .absolute)[0]
             #expect(relative.targetPath == "../source.txt")
             #expect(absolute.targetPath == source.path)
+        }
+    }
+
+    @Test func createLinksRejectsEmptySources() throws {
+        try withTemporaryDirectory { root in
+            let destination = root.appendingPathComponent("links", isDirectory: true)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+
+            #expect(throws: LinksmithError.noSources) {
+                try SymlinkService().createLinks(to: [], in: destination)
+            }
+        }
+    }
+
+    @Test func createLinksRejectsMissingSource() throws {
+        try withTemporaryDirectory { root in
+            let destination = root.appendingPathComponent("links", isDirectory: true)
+            let source = root.appendingPathComponent("missing.txt")
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+
+            #expect(throws: LinksmithError.sourceDoesNotExist(source)) {
+                try SymlinkService().createLinks(to: [source], in: destination)
+            }
+        }
+    }
+
+    @Test func createLinksRejectsFileDestination() throws {
+        try withTemporaryDirectory { root in
+            let source = root.appendingPathComponent("source.txt")
+            let destination = root.appendingPathComponent("destination.txt")
+            try Data().write(to: source)
+            try Data().write(to: destination)
+
+            #expect(throws: LinksmithError.destinationIsNotDirectory(destination)) {
+                try SymlinkService().createLinks(to: [source], in: destination)
+            }
         }
     }
 

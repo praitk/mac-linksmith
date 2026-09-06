@@ -11,7 +11,7 @@
 		<key>NSExtensionAttributes</key>
 		<dict>
 			<key>NSExtensionActivationRule</key>
-			<string>SUBQUERY(extensionItems, $extensionItem, SUBQUERY($extensionItem.attachments, $attachment, ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.item").@count == $extensionItem.attachments.@count).@count == 1</string>
+			<string>extensionItems.@count &gt; 0 AND SUBQUERY(extensionItems, $extensionItem, $extensionItem.attachments.@count &gt; 0 AND SUBQUERY($extensionItem.attachments, $attachment, ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.item").@count == $extensionItem.attachments.@count).@count == extensionItems.@count</string>
 			<key>NSExtensionServiceAllowsFinderPreviewItem</key>
 			<true/>
 			<key>NSExtensionServiceAllowsTouchBarItem</key>
@@ -19,16 +19,16 @@
 			<key>NSExtensionServiceFinderPreviewIconName</key>
 			<string>NSActionTemplate</string>
 			<key>NSExtensionServiceRoleType</key>
-			<string>NSExtensionServiceRoleTypeEditor</string>
+			<string>NSExtensionServiceRoleTypeViewer</string>
 			<key>NSExtensionServiceTouchBarBezelColorName</key>
 			<string>TouchBarBezel</string>
 			<key>NSExtensionServiceTouchBarIconName</key>
 			<string>NSActionTemplate</string>
 		</dict>
 		<key>NSExtensionPointIdentifier</key>
-		<string>com.apple.ui-services</string>
+		<string>com.apple.services</string>
 		<key>NSExtensionPrincipalClass</key>
-		<string>ActionViewController</string>
+		<string>ActionRequestHandler</string>
 	</dict>
 </dict>
 </plist>
