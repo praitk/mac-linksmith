@@ -78,6 +78,55 @@ struct SymlinkServiceTests {
         }
     }
 
+    @Test func createLinksUsesAbsoluteTargetWhenLinksmithMarkerIsOnSourcePathToCommonAncestor() throws {
+        try withTemporaryDirectory { root in
+            let sourceDirectory = root.appendingPathComponent("project/source", isDirectory: true)
+            let source = sourceDirectory.appendingPathComponent("report.txt")
+            let destination = root.appendingPathComponent("links", isDirectory: true)
+            try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Data().write(to: source)
+            try Data().write(to: root.appendingPathComponent("project/.linksmith"))
+
+            let created = try SymlinkService().createLinks(to: [source], in: destination, kind: .relative)[0]
+
+            #expect(created.targetPath == source.path)
+            #expect(try FileManager.default.destinationOfSymbolicLink(atPath: created.link.path) == source.path)
+        }
+    }
+
+    @Test func createLinksUsesAbsoluteTargetWhenLinksmithMarkerIsOnDestinationPathToCommonAncestor() throws {
+        try withTemporaryDirectory { root in
+            let source = root.appendingPathComponent("source/report.txt")
+            let destination = root.appendingPathComponent("project/links", isDirectory: true)
+            try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Data().write(to: source)
+            try Data().write(to: root.appendingPathComponent("project/.linksmith"))
+
+            let created = try SymlinkService().createLinks(to: [source], in: destination, kind: .relative)[0]
+
+            #expect(created.targetPath == source.path)
+            #expect(try FileManager.default.destinationOfSymbolicLink(atPath: created.link.path) == source.path)
+        }
+    }
+
+    @Test func createLinksKeepsRelativeTargetWhenLinksmithMarkerIsAtCommonAncestor() throws {
+        try withTemporaryDirectory { root in
+            let source = root.appendingPathComponent("source/report.txt")
+            let destination = root.appendingPathComponent("links", isDirectory: true)
+            try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Data().write(to: source)
+            try Data().write(to: root.appendingPathComponent(".linksmith"))
+
+            let created = try SymlinkService().createLinks(to: [source], in: destination, kind: .relative)[0]
+
+            #expect(created.targetPath == "../source/report.txt")
+            #expect(try FileManager.default.destinationOfSymbolicLink(atPath: created.link.path) == "../source/report.txt")
+        }
+    }
+
     @Test func moveItemAndReplaceWithLinkMovesFileAndCreatesRelativeSymlinkAtOriginalPath() throws {
         try withTemporaryDirectory { root in
             let source = root.appendingPathComponent("source/report.txt")
@@ -308,6 +357,22 @@ struct SymlinkServiceTests {
                 in: destination,
                 kind: .absolute
             )
+
+            #expect(replaced.targetPath == replaced.movedItem.path)
+            #expect(try FileManager.default.destinationOfSymbolicLink(atPath: source.path) == replaced.movedItem.path)
+        }
+    }
+
+    @Test func moveItemAndReplaceWithLinkUsesAbsoluteTargetWhenLinksmithMarkerIsOnMovedPathToCommonAncestor() throws {
+        try withTemporaryDirectory { root in
+            let source = root.appendingPathComponent("source/report.txt")
+            let destination = root.appendingPathComponent("project/moved", isDirectory: true)
+            try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Data("contents".utf8).write(to: source)
+            try Data().write(to: root.appendingPathComponent("project/.linksmith"))
+
+            let replaced = try SymlinkService().moveItemAndReplaceWithLink(source: source, in: destination)
 
             #expect(replaced.targetPath == replaced.movedItem.path)
             #expect(try FileManager.default.destinationOfSymbolicLink(atPath: source.path) == replaced.movedItem.path)

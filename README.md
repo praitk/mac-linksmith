@@ -26,6 +26,7 @@ Linksmith currently provides a Finder Quick Action named **Create Symlink…**:
 - when one folder is selected, can instead create links inside that folder after choosing the source items;
 - when one file is selected, can move that file to a chosen folder and replace the original with a symbolic link;
 - creates relative symbolic links by default;
+- switches requested relative links to absolute links when the source or destination is below a `.linksmith` marker boundary;
 - optionally creates absolute symbolic links through the host app setting;
 - remembers up to 10 recent destination folders;
 - stores persistent folder access as security-scoped bookmarks; and
@@ -50,7 +51,9 @@ LinksmithCore
 Foundation / macOS filesystem
 ```
 
-`LinksmithAction` translates Finder input into file URLs and presents the destination chooser. `LinksmithCore` owns path generation, collision handling, symlink creation, shared settings, and recent-destination persistence. The host app and extension share settings through the `group.com.praitk.Linksmith` App Group.
+`LinksmithAction` translates Finder input into file URLs and presents the destination chooser.
+`LinksmithCore` owns path generation, collision handling, symlink creation, shared settings, and recent-destination persistence.
+The host app and extension share settings through the `group.com.praitk.Linksmith` App Group.
 
 ## Technology
 
@@ -123,11 +126,22 @@ To create links inside a folder instead, select exactly one folder in Finder, ch
 
 To move a file and leave a symbolic link in its original location, select exactly one file in Finder, choose **Quick Actions → Create Symlink…**, click **Move and Replace with Link**, then choose the folder where the file should be moved.
 
+### Relative and absolute links
+
+By default, Linksmith creates relative symbolic links.
+This keeps links portable when the source and destination move together within the same tree.
+
+Place a file named `.linksmith` in a directory to mark the deepest folder that can still be included in a relative link.
+When Linksmith is about to create a relative link, it walks from the source and destination directories up to their first common ancestor.
+If a `.linksmith` file is found below that common ancestor on either path, Linksmith writes an absolute target path instead.
+If the `.linksmith` file is in the common ancestor itself, the link remains relative because that marked folder is the relative-link boundary.
+
 If the action is not visible during development, enable `LinksmithAction` in macOS extension settings or Finder's Quick Actions customization interface, then relaunch Finder.
 
 ## Project status
 
-Linksmith is in early development. The first end-to-end symbolic-link workflow is implemented and covered by tests for path generation, collision handling, multiple selections, and relative-versus-absolute links.
+Linksmith is in early development.
+The first end-to-end symbolic-link workflow is implemented and covered by tests for path generation, collision handling, multiple selections, and marker-based relative-versus-absolute links.
 
 ## License
 

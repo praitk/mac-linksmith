@@ -349,14 +349,16 @@ struct LinkCompletionAlertContent: Equatable {
     let informativeText: String
 
     static func createdLinks(_ created: [CreatedSymlink]) -> LinkCompletionAlertContent {
-        if let link = created.onlyElement?.link {
+        if let item = created.onlyElement {
             return LinkCompletionAlertContent(
                 message: "Link Created",
-                informativeText: "Created symbolic link: \(link.lastPathComponent)."
+                informativeText: "Created \(linkStyle(for: item.targetPath)) symbolic link: \(item.link.lastPathComponent)."
             )
         }
 
-        let names = created.map { $0.link.lastPathComponent }.joined(separator: "\n")
+        let names = created
+            .map { "\($0.link.lastPathComponent) (\(linkStyle(for: $0.targetPath)))" }
+            .joined(separator: "\n")
         return LinkCompletionAlertContent(
             message: "Links Created",
             informativeText: "Created \(created.count) symbolic links:\n\(names)"
@@ -366,8 +368,12 @@ struct LinkCompletionAlertContent: Equatable {
     static func replacedItem(_ replaced: ReplacedItemSymlink) -> LinkCompletionAlertContent {
         LinkCompletionAlertContent(
             message: "File Moved",
-            informativeText: "Moved \(replaced.movedItem.lastPathComponent) and created symbolic link: \(replaced.original.lastPathComponent)."
+            informativeText: "Moved \(replaced.movedItem.lastPathComponent) and created \(linkStyle(for: replaced.targetPath)) symbolic link: \(replaced.original.lastPathComponent)."
         )
+    }
+
+    private static func linkStyle(for targetPath: String) -> String {
+        targetPath.hasPrefix("/") ? "absolute" : "relative"
     }
 }
 

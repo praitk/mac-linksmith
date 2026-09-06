@@ -14,7 +14,20 @@ struct LinksmithTests {
         let content = LinkCompletionAlertContent.createdLinks([created])
 
         #expect(content.message == "Link Created")
-        #expect(content.informativeText == "Created symbolic link: report 2.pdf.")
+        #expect(content.informativeText == "Created relative symbolic link: report 2.pdf.")
+    }
+
+    @Test func singleLinkCompletionMentionsAbsoluteLinkStyle() {
+        let created = CreatedSymlink(
+            source: URL(fileURLWithPath: "/tmp/source/report.pdf"),
+            link: URL(fileURLWithPath: "/tmp/links/report 2.pdf"),
+            targetPath: "/tmp/source/report.pdf"
+        )
+
+        let content = LinkCompletionAlertContent.createdLinks([created])
+
+        #expect(content.message == "Link Created")
+        #expect(content.informativeText == "Created absolute symbolic link: report 2.pdf.")
     }
 
     @Test func multipleLinksCompletionMentionsAllActualCreatedLinkNames() {
@@ -27,14 +40,14 @@ struct LinksmithTests {
             CreatedSymlink(
                 source: URL(fileURLWithPath: "/tmp/source/image.png"),
                 link: URL(fileURLWithPath: "/tmp/links/image.png"),
-                targetPath: "../source/image.png"
+                targetPath: "/tmp/source/image.png"
             ),
         ]
 
         let content = LinkCompletionAlertContent.createdLinks(created)
 
         #expect(content.message == "Links Created")
-        #expect(content.informativeText == "Created 2 symbolic links:\nreport 2.pdf\nimage.png")
+        #expect(content.informativeText == "Created 2 symbolic links:\nreport 2.pdf (relative)\nimage.png (absolute)")
     }
 
     @Test func moveAndReplaceCompletionMentionsMovedFileAndCreatedLinkName() {
@@ -47,6 +60,19 @@ struct LinksmithTests {
         let content = LinkCompletionAlertContent.replacedItem(replaced)
 
         #expect(content.message == "File Moved")
-        #expect(content.informativeText == "Moved report.pdf and created symbolic link: report.pdf.")
+        #expect(content.informativeText == "Moved report.pdf and created relative symbolic link: report.pdf.")
+    }
+
+    @Test func moveAndReplaceCompletionMentionsAbsoluteLinkStyle() {
+        let replaced = ReplacedItemSymlink(
+            original: URL(fileURLWithPath: "/tmp/source/report.pdf"),
+            movedItem: URL(fileURLWithPath: "/tmp/moved/report.pdf"),
+            targetPath: "/tmp/moved/report.pdf"
+        )
+
+        let content = LinkCompletionAlertContent.replacedItem(replaced)
+
+        #expect(content.message == "File Moved")
+        #expect(content.informativeText == "Moved report.pdf and created absolute symbolic link: report.pdf.")
     }
 }

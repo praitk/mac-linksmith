@@ -31,6 +31,8 @@ public struct ReplacedItemSymlink: Equatable, Sendable {
 }
 
 public struct SymlinkService {
+    private static let markerFileName = ".linksmith"
+
     private let fileManager: FileManager
 
     public init(fileManager: FileManager = .default) {
@@ -39,9 +41,13 @@ public struct SymlinkService {
 
     public func targetPath(for source: URL, linkIn destination: URL, kind: SymlinkKind) -> String {
         let source = source.standardizedFileURL
-        guard kind == .relative else { return source.path }
+        let destination = destination.standardizedFileURL
+        guard kind == .relative,
+              shouldUseAbsoluteTarget(for: source, linkIn: destination) == false else {
+            return source.path
+        }
 
-        let baseComponents = destination.standardizedFileURL.pathComponents
+        let baseComponents = destination.pathComponents
         let sourceComponents = source.pathComponents
         var sharedCount = 0
 
@@ -54,6 +60,55 @@ public struct SymlinkService {
         let downward = Array(sourceComponents.dropFirst(sharedCount))
         let components = upward + downward
         return components.isEmpty ? "." : components.joined(separator: "/")
+    }
+
+    private func shouldUseAbsoluteTarget(for source: URL, linkIn destination: URL) -> Bool {
+        let sourceDirectory = directoryForMarkerSearch(from: source)
+        let destinationDirectory = destination.standardizedFileURL
+        let sourceComponents = sourceDirectory.pathComponents
+        let destinationComponents = destinationDirectory.pathComponents
+        var sharedCount = 0
+
+        while sharedCount < min(sourceComponents.count, destinationComponents.count),
+              sourceComponents[sharedCount] == destinationComponents[sharedCount] {
+            sharedCount += 1
+        }
+
+        guard sharedCount > 0 else { return false }
+
+        return pathBelowCommonAncestorContainsMarker(
+            components: sourceComponents,
+            from: sourceComponents.count,
+            above: sharedCount
+        ) || pathBelowCommonAncestorContainsMarker(
+            components: destinationComponents,
+            from: destinationComponents.count,
+            above: sharedCount
+        )
+    }
+
+    private func directoryForMarkerSearch(from url: URL) -> URL {
+        var isDirectory: ObjCBool = false
+        if fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory),
+           isDirectory.boolValue {
+            return url.standardizedFileURL
+        }
+
+        return url.deletingLastPathComponent().standardizedFileURL
+    }
+
+    private func pathBelowCommonAncestorContainsMarker(components: [String], from start: Int, above commonAncestorCount: Int) -> Bool {
+        guard start > commonAncestorCount else { return false }
+
+        for count in stride(from: start, through: commonAncestorCount + 1, by: -1) {
+            let directory = URL(fileURLWithPath: NSString.path(withComponents: Array(components.prefix(count))))
+            let marker = directory.appendingPathComponent(Self.markerFileName)
+            if fileManager.fileExists(atPath: marker.path) {
+                return true
+            }
+        }
+
+        return false
     }
 
     public func availableLinkURL(for source: URL, in destination: URL) -> URL {
