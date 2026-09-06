@@ -166,9 +166,13 @@ public struct SymlinkService {
         return false
     }
 
-    public func availableLinkURL(for source: URL, in destination: URL) -> URL {
+    public func availableLinkURL(
+        for source: URL,
+        in destination: URL,
+        allowsDuplicateTargetLink: Bool = true
+    ) throws -> URL {
         let initial = destination.appendingPathComponent(source.lastPathComponent)
-        guard isPathAvailable(initial) == true else {
+        guard try isLinkPathAvailable(initial, for: source, allowsDuplicateTargetLink: allowsDuplicateTargetLink) == true else {
             let name = source.deletingPathExtension().lastPathComponent
             let pathExtension = source.pathExtension
             var suffix = 2
@@ -178,13 +182,27 @@ public struct SymlinkService {
                     ? "\(name) \(suffix)"
                     : "\(name) \(suffix).\(pathExtension)"
                 let candidate = destination.appendingPathComponent(candidateName)
-                if isPathAvailable(candidate) {
+                if try isLinkPathAvailable(candidate, for: source, allowsDuplicateTargetLink: allowsDuplicateTargetLink) {
                     return candidate
                 }
                 suffix += 1
             }
         }
         return initial
+    }
+
+    private func isLinkPathAvailable(
+        _ url: URL,
+        for source: URL,
+        allowsDuplicateTargetLink: Bool
+    ) throws -> Bool {
+        if let existingTarget = resolvedSymbolicLinkDestination(at: url),
+           refersToSameFile(existingTarget, source),
+           allowsDuplicateTargetLink == false {
+            throw LinksmithError.destinationContainsLinkToSource(source, url)
+        }
+
+        return isPathAvailable(url)
     }
 
     private func isPathAvailable(_ url: URL) -> Bool {
@@ -356,7 +374,8 @@ public struct SymlinkService {
         to sources: [URL],
         in destination: URL,
         kind: SymlinkKind = .relative,
-        sourceValidation: SourceValidationPolicy = .requireExistingSources
+        sourceValidation: SourceValidationPolicy = .requireExistingSources,
+        allowsDuplicateTargetLinks: Bool = true
     ) throws -> [CreatedSymlink] {
         guard sources.isEmpty == false else { throw LinksmithError.noSources }
 
@@ -371,7 +390,11 @@ public struct SymlinkService {
                 throw LinksmithError.sourceDoesNotExist(source)
             }
 
-            let link = availableLinkURL(for: source, in: destination)
+            let link = try availableLinkURL(
+                for: source,
+                in: destination,
+                allowsDuplicateTargetLink: allowsDuplicateTargetLinks
+            )
             let target = targetPath(for: source, linkIn: destination, kind: kind)
             do {
                 try fileManager.createSymbolicLink(atPath: link.path, withDestinationPath: target)

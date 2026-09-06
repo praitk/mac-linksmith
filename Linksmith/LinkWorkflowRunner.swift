@@ -206,6 +206,20 @@ final class LinkWorkflowRunner {
     }
 
     private func createLinks(to sources: [URL], in destination: URL, rememberDestination: Bool) {
+        createLinks(
+            to: sources,
+            in: destination,
+            rememberDestination: rememberDestination,
+            allowsDuplicateTargetLinks: false
+        )
+    }
+
+    private func createLinks(
+        to sources: [URL],
+        in destination: URL,
+        rememberDestination: Bool,
+        allowsDuplicateTargetLinks: Bool
+    ) {
         do {
             let created = try SecurityScopedAccess.withAccess(to: sources + [destination]) {
                 diagnostics?.log("Creating \(sources.count) link(s) in \(destination.path).")
@@ -213,7 +227,8 @@ final class LinkWorkflowRunner {
                     to: sources,
                     in: destination,
                     kind: settings.symlinkKind,
-                    sourceValidation: .allowUnresolvedSources
+                    sourceValidation: .allowUnresolvedSources,
+                    allowsDuplicateTargetLinks: allowsDuplicateTargetLinks
                 )
             }
             if rememberDestination {
@@ -225,6 +240,23 @@ final class LinkWorkflowRunner {
             }
             presenter.showCompletion(created)
         } catch {
+            if let linkConflict = error as? LinksmithError,
+               case .destinationContainsLinkToSource = linkConflict {
+                guard presenter.confirmDuplicateTargetLinkCreation() else {
+                    diagnostics?.log("User cancelled duplicate target link creation.")
+                    return
+                }
+
+                diagnostics?.log("User chose to add another link to the same target.")
+                createLinks(
+                    to: sources,
+                    in: destination,
+                    rememberDestination: rememberDestination,
+                    allowsDuplicateTargetLinks: true
+                )
+                return
+            }
+
             diagnostics?.log("Failed creating links: \(error.localizedDescription)")
             presenter.showError(error)
         }

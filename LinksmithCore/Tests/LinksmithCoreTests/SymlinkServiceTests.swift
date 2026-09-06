@@ -22,7 +22,7 @@ struct SymlinkServiceTests {
             try Data().write(to: destination.appendingPathComponent("report.pdf"))
             try Data().write(to: destination.appendingPathComponent("report 2.pdf"))
 
-            let result = SymlinkService().availableLinkURL(for: source, in: destination)
+            let result = try SymlinkService().availableLinkURL(for: source, in: destination)
             #expect(result.lastPathComponent == "report 3.pdf")
         }
     }
@@ -39,8 +39,61 @@ struct SymlinkServiceTests {
                 withDestinationPath: "missing.pdf"
             )
 
-            let result = SymlinkService().availableLinkURL(for: source, in: destination)
+            let result = try SymlinkService().availableLinkURL(for: source, in: destination)
             #expect(result.lastPathComponent == "report 2.pdf")
+        }
+    }
+
+    @Test func createLinksRejectsExistingSymlinkPointingToSameSourceByDefault() throws {
+        try withTemporaryDirectory { root in
+            let source = root.appendingPathComponent("source/report.pdf")
+            let destination = root.appendingPathComponent("links", isDirectory: true)
+            let existingLink = destination.appendingPathComponent("report.pdf")
+            try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Data("source".utf8).write(to: source)
+            try FileManager.default.createSymbolicLink(atPath: existingLink.path, withDestinationPath: source.path)
+
+            #expect(throws: LinksmithError.destinationContainsLinkToSource(source, existingLink)) {
+                try SymlinkService().createLinks(to: [source], in: destination, allowsDuplicateTargetLinks: false)
+            }
+            #expect(try FileManager.default.destinationOfSymbolicLink(atPath: existingLink.path) == source.path)
+        }
+    }
+
+    @Test func createLinksChecksIncrementedCandidatesForSymlinkPointingToSameSource() throws {
+        try withTemporaryDirectory { root in
+            let source = root.appendingPathComponent("source/report.pdf")
+            let destination = root.appendingPathComponent("links", isDirectory: true)
+            let existingLink = destination.appendingPathComponent("report 2.pdf")
+            try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Data("source".utf8).write(to: source)
+            try Data("existing".utf8).write(to: destination.appendingPathComponent("report.pdf"))
+            try FileManager.default.createSymbolicLink(atPath: existingLink.path, withDestinationPath: "../source/report.pdf")
+
+            #expect(throws: LinksmithError.destinationContainsLinkToSource(source, existingLink)) {
+                try SymlinkService().createLinks(to: [source], in: destination, allowsDuplicateTargetLinks: false)
+            }
+            #expect(try FileManager.default.destinationOfSymbolicLink(atPath: existingLink.path) == "../source/report.pdf")
+        }
+    }
+
+    @Test func createLinksCanContinueWhenExistingSymlinkPointsToSameSource() throws {
+        try withTemporaryDirectory { root in
+            let source = root.appendingPathComponent("source/report.pdf")
+            let destination = root.appendingPathComponent("links", isDirectory: true)
+            try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Data("source".utf8).write(to: source)
+            try FileManager.default.createSymbolicLink(
+                atPath: destination.appendingPathComponent("report.pdf").path,
+                withDestinationPath: source.path
+            )
+
+            let created = try SymlinkService().createLinks(to: [source], in: destination)
+
+            #expect(created[0].link.lastPathComponent == "report 2.pdf")
         }
     }
 
