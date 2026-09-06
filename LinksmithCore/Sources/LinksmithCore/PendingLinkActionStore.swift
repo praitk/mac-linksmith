@@ -3,11 +3,18 @@ import Foundation
 public struct PendingLinkAction: Codable, Equatable, Sendable {
     public let id: UUID
     public let selectedPaths: [String]
+    public let selectedBookmarks: [Data?]?
     public let createdAt: Date
 
-    public init(id: UUID = UUID(), selectedPaths: [String], createdAt: Date = Date()) {
+    public init(
+        id: UUID = UUID(),
+        selectedPaths: [String],
+        selectedBookmarks: [Data?]? = nil,
+        createdAt: Date = Date()
+    ) {
         self.id = id
         self.selectedPaths = selectedPaths
+        self.selectedBookmarks = selectedBookmarks
         self.createdAt = createdAt
     }
 }
@@ -21,8 +28,16 @@ public final class PendingLinkActionStore: @unchecked Sendable {
     }
 
     public func saveSelection(_ urls: [URL], now: Date = Date()) throws {
-        let paths = urls.map { $0.standardizedFileURL.path }
-        let action = PendingLinkAction(selectedPaths: paths, createdAt: now)
+        let normalized = urls.map(\.standardizedFileURL)
+        let paths = normalized.map(\.path)
+        let bookmarks = normalized.map { url in
+            try? url.bookmarkData(
+                options: [.withSecurityScope],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+        }
+        let action = PendingLinkAction(selectedPaths: paths, selectedBookmarks: bookmarks, createdAt: now)
         defaults.set(try PropertyListEncoder().encode(action), forKey: Key.pendingAction)
         defaults.synchronize()
     }
@@ -43,6 +58,24 @@ public final class PendingLinkActionStore: @unchecked Sendable {
 
         defaults.removeObject(forKey: Key.pendingAction)
         defaults.synchronize()
-        return action.selectedPaths.map { URL(fileURLWithPath: $0) }
+        return action.selectedPaths.enumerated().map { index, path in
+            guard let bookmark = action.selectedBookmarks?[safe: index] ?? nil else {
+                return URL(fileURLWithPath: path)
+            }
+
+            var stale = false
+            return (try? URL(
+                resolvingBookmarkData: bookmark,
+                options: [.withSecurityScope],
+                relativeTo: nil,
+                bookmarkDataIsStale: &stale
+            )) ?? URL(fileURLWithPath: path)
+        }
+    }
+}
+
+private extension Collection {
+    subscript(safe index: Index) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }

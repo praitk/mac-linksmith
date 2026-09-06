@@ -43,16 +43,16 @@ final class LinkWorkflowRunner {
 
         let alert = NSAlert()
         alert.messageText = "Create Symbolic Links"
-        alert.informativeText = "Use the selected folder as the source item, or create links inside it."
-        alert.addButton(withTitle: "From Selection")
-        alert.addButton(withTitle: "To This Folder")
+        alert.informativeText = "Create symbolic links inside the selected folder, or create a symbolic link to the folder itself."
+        alert.addButton(withTitle: "Create Links Here")
+        alert.addButton(withTitle: "Link to This Folder")
         alert.addButton(withTitle: "Cancel")
 
         switch alert.runModal() {
         case .alertFirstButtonReturn:
-            return .symlinkFromSelection
-        case .alertSecondButtonReturn:
             return .symlinkToSelectedFolder
+        case .alertSecondButtonReturn:
+            return .symlinkFromSelection
         default:
             return nil
         }
