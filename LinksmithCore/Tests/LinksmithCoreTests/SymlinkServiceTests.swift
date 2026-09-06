@@ -401,6 +401,107 @@ struct SymlinkServiceTests {
         }
     }
 
+    @Test func symlinkReplacementAuthorizationUsesCommonAncestorWhenNoMarkerBoundaryIsCrossed() throws {
+        try withTemporaryDirectory { root in
+            let target = root.appendingPathComponent("target/report.txt")
+            let link = root.appendingPathComponent("link/report.txt")
+            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data().write(to: target)
+            try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "../target/report.txt")
+
+            let directories = try SymlinkService().authorizationDirectoriesForReplacingSymlink(at: link)
+
+            #expect(directories == [root.standardizedFileURL])
+        }
+    }
+
+    @Test func symlinkReplacementAuthorizationUsesSeparateFoldersWhenMarkerBoundaryWouldBeCrossed() throws {
+        try withTemporaryDirectory { root in
+            let target = root.appendingPathComponent("target/report.txt")
+            let link = root.appendingPathComponent("project/link/report.txt")
+            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data().write(to: target)
+            try Data().write(to: root.appendingPathComponent("project/.linksmith"))
+            try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "../../target/report.txt")
+
+            let directories = try SymlinkService().authorizationDirectoriesForReplacingSymlink(at: link)
+
+            #expect(directories == [
+                link.deletingLastPathComponent().standardizedFileURL,
+                target.deletingLastPathComponent().standardizedFileURL,
+            ])
+        }
+    }
+
+    @Test func symlinkReplacementAuthorizationUsesCommonAncestorWhenMarkerIsAtCommonAncestor() throws {
+        try withTemporaryDirectory { root in
+            let target = root.appendingPathComponent("target/report.txt")
+            let link = root.appendingPathComponent("link/report.txt")
+            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data().write(to: target)
+            try Data().write(to: root.appendingPathComponent(".linksmith"))
+            try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "../target/report.txt")
+
+            let directories = try SymlinkService().authorizationDirectoriesForReplacingSymlink(at: link)
+
+            #expect(directories == [root.standardizedFileURL])
+        }
+    }
+
+    @Test func symlinkReplacementAuthorizationDoesNotAskForHomeWhenTopLevelUserFoldersDiffer() throws {
+        try withTemporaryDirectory { root in
+            let home = root.appendingPathComponent("Users/test", isDirectory: true)
+            let target = home.appendingPathComponent("Pictures/report.txt")
+            let link = home.appendingPathComponent("Documents/report.txt")
+            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data().write(to: target)
+            try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "../Pictures/report.txt")
+
+            let directories = try SymlinkService(
+                homeDirectoryForAuthorization: home
+            ).authorizationDirectoriesForReplacingSymlink(at: link)
+
+            #expect(directories == [
+                home.appendingPathComponent("Documents", isDirectory: true).standardizedFileURL,
+                home.appendingPathComponent("Pictures", isDirectory: true).standardizedFileURL,
+            ])
+        }
+    }
+
+    @Test func symlinkReplacementAuthorizationCanAskForSharedTopLevelUserFolder() throws {
+        try withTemporaryDirectory { root in
+            let home = root.appendingPathComponent("Users/test", isDirectory: true)
+            let target = home.appendingPathComponent("Desktop/target/report.txt")
+            let link = home.appendingPathComponent("Desktop/link/report.txt")
+            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data().write(to: target)
+            try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "../target/report.txt")
+
+            let directories = try SymlinkService(
+                homeDirectoryForAuthorization: home
+            ).authorizationDirectoriesForReplacingSymlink(at: link)
+
+            #expect(directories == [home.appendingPathComponent("Desktop", isDirectory: true).standardizedFileURL])
+        }
+    }
+
+    @Test func symlinkReplacementAuthorizationSupportsBrokenSymlinks() throws {
+        try withTemporaryDirectory { root in
+            let link = root.appendingPathComponent("link/report.txt")
+            try FileManager.default.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "../missing/report.txt")
+
+            let directories = try SymlinkService().authorizationDirectoriesForReplacingSymlink(at: link)
+
+            #expect(directories == [root.standardizedFileURL])
+        }
+    }
+
     @Test func copyTargetReplacingSymlinkCopiesTargetAndLeavesOriginal() throws {
         try withTemporaryDirectory { root in
             let target = root.appendingPathComponent("target/report.txt")

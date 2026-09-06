@@ -118,8 +118,18 @@ final class LinkWorkflowRunner {
     }
 
     private func swapSymlinkTarget(_ link: URL) {
+        let scopedURLs: [URL]
         do {
-            let swapped = try SecurityScopedAccess.withAccess(to: [link]) {
+            scopedURLs = try authorizeSymlinkReplacement(link)
+        } catch {
+            diagnostics?.log("Failed preparing symlink replacement authorization: \(error.localizedDescription)")
+            presenter.showError(error)
+            return
+        }
+        guard scopedURLs.isEmpty == false else { return }
+
+        do {
+            let swapped = try SecurityScopedAccess.withAccess(to: scopedURLs) {
                 diagnostics?.log("Swapping symlink target with selected link: \(link.path)")
                 return try service.swapTargetWithSymlink(at: link, kind: settings.symlinkKind)
             }
@@ -133,8 +143,18 @@ final class LinkWorkflowRunner {
     }
 
     private func copySymlinkTargetReplacingLink(_ link: URL) {
+        let scopedURLs: [URL]
         do {
-            let replaced = try SecurityScopedAccess.withAccess(to: [link]) {
+            scopedURLs = try authorizeSymlinkReplacement(link)
+        } catch {
+            diagnostics?.log("Failed preparing symlink replacement authorization: \(error.localizedDescription)")
+            presenter.showError(error)
+            return
+        }
+        guard scopedURLs.isEmpty == false else { return }
+
+        do {
+            let replaced = try SecurityScopedAccess.withAccess(to: scopedURLs) {
                 diagnostics?.log("Copying symlink target over selected link: \(link.path)")
                 return try service.copyTargetReplacingSymlink(at: link)
             }
@@ -147,8 +167,18 @@ final class LinkWorkflowRunner {
     }
 
     private func moveSymlinkTargetReplacingLink(_ link: URL) {
+        let scopedURLs: [URL]
         do {
-            let replaced = try SecurityScopedAccess.withAccess(to: [link]) {
+            scopedURLs = try authorizeSymlinkReplacement(link)
+        } catch {
+            diagnostics?.log("Failed preparing symlink replacement authorization: \(error.localizedDescription)")
+            presenter.showError(error)
+            return
+        }
+        guard scopedURLs.isEmpty == false else { return }
+
+        do {
+            let replaced = try SecurityScopedAccess.withAccess(to: scopedURLs) {
                 diagnostics?.log("Moving symlink target over selected link: \(link.path)")
                 return try service.moveTargetReplacingSymlink(at: link)
             }
@@ -158,6 +188,21 @@ final class LinkWorkflowRunner {
             diagnostics?.log("Failed moving symlink target: \(error.localizedDescription)")
             presenter.showError(error)
         }
+    }
+
+    private func authorizeSymlinkReplacement(_ link: URL) throws -> [URL] {
+        let authorizationDirectories = try service.authorizationDirectoriesForReplacingSymlink(at: link)
+        var scopedURLs = [link]
+
+        for directory in authorizationDirectories {
+            guard let authorizedDirectory = presenter.authorizeSymlinkReplacementFolder(directory, for: link) else {
+                diagnostics?.log("User cancelled symbolic link replacement authorization for \(directory.path).")
+                return []
+            }
+            scopedURLs.append(authorizedDirectory)
+        }
+
+        return scopedURLs
     }
 
     private func createLinks(to sources: [URL], in destination: URL, rememberDestination: Bool) {

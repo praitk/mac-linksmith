@@ -70,16 +70,24 @@ public struct SymlinkService {
     private static let markerFileName = ".linksmith"
 
     private let fileManager: FileManager
+    private let homeDirectoryForAuthorization: URL
 
-    public init(fileManager: FileManager = .default) {
+    public init(
+        fileManager: FileManager = .default,
+        homeDirectoryForAuthorization: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) {
         self.fileManager = fileManager
+        self.homeDirectoryForAuthorization = homeDirectoryForAuthorization.standardizedFileURL
     }
 
     public func targetPath(for source: URL, linkIn destination: URL, kind: SymlinkKind) -> String {
         let source = source.standardizedFileURL
         let destination = destination.standardizedFileURL
         guard kind == .relative,
-              shouldUseAbsoluteTarget(for: source, linkIn: destination) == false else {
+              hasMarkerBelowCommonAncestor(
+                firstDirectory: directoryForMarkerSearch(from: source),
+                secondDirectory: destination
+              ) == false else {
             return source.path
         }
 
@@ -98,29 +106,40 @@ public struct SymlinkService {
         return components.isEmpty ? "." : components.joined(separator: "/")
     }
 
-    private func shouldUseAbsoluteTarget(for source: URL, linkIn destination: URL) -> Bool {
-        let sourceDirectory = directoryForMarkerSearch(from: source)
-        let destinationDirectory = destination.standardizedFileURL
-        let sourceComponents = sourceDirectory.pathComponents
-        let destinationComponents = destinationDirectory.pathComponents
-        var sharedCount = 0
-
-        while sharedCount < min(sourceComponents.count, destinationComponents.count),
-              sourceComponents[sharedCount] == destinationComponents[sharedCount] {
-            sharedCount += 1
-        }
+    private func hasMarkerBelowCommonAncestor(firstDirectory: URL, secondDirectory: URL) -> Bool {
+        let firstComponents = firstDirectory.standardizedFileURL.pathComponents
+        let secondComponents = secondDirectory.standardizedFileURL.pathComponents
+        let sharedCount = commonAncestorComponentCount(firstComponents, secondComponents)
 
         guard sharedCount > 0 else { return false }
 
         return pathBelowCommonAncestorContainsMarker(
-            components: sourceComponents,
-            from: sourceComponents.count,
+            components: firstComponents,
+            from: firstComponents.count,
             above: sharedCount
         ) || pathBelowCommonAncestorContainsMarker(
-            components: destinationComponents,
-            from: destinationComponents.count,
+            components: secondComponents,
+            from: secondComponents.count,
             above: sharedCount
         )
+    }
+
+    private func commonAncestorComponentCount(_ first: [String], _ second: [String]) -> Int {
+        var sharedCount = 0
+
+        while sharedCount < min(first.count, second.count),
+              first[sharedCount] == second[sharedCount] {
+            sharedCount += 1
+        }
+
+        return sharedCount
+    }
+
+    private func commonAncestorDirectory(_ first: URL, _ second: URL) -> URL {
+        let firstComponents = first.standardizedFileURL.pathComponents
+        let secondComponents = second.standardizedFileURL.pathComponents
+        let sharedCount = commonAncestorComponentCount(firstComponents, secondComponents)
+        return URL(fileURLWithPath: NSString.path(withComponents: Array(firstComponents.prefix(sharedCount))), isDirectory: true)
     }
 
     private func directoryForMarkerSearch(from url: URL) -> URL {
@@ -180,6 +199,33 @@ public struct SymlinkService {
         symbolicLinkTarget(at: url.standardizedFileURL)
     }
 
+    public func authorizationDirectoriesForReplacingSymlink(at link: URL) throws -> [URL] {
+        let link = link.standardizedFileURL
+        guard let targetPath = symbolicLinkTarget(at: link) else {
+            throw LinksmithError.selectedItemIsNotSymbolicLink(link)
+        }
+
+        let linkFolder = link.deletingLastPathComponent().standardizedFileURL
+        let targetFolder = resolvedSymbolicLinkTarget(targetPath: targetPath, for: link)
+            .deletingLastPathComponent()
+            .standardizedFileURL
+
+        if hasMarkerBelowCommonAncestor(firstDirectory: linkFolder, secondDirectory: targetFolder) {
+            return uniqueStandardizedURLs([linkFolder, targetFolder])
+        }
+
+        let commonAncestor = commonAncestorDirectory(linkFolder, targetFolder)
+        if let homeBoundedDirectories = homeBoundedAuthorizationDirectories(
+            commonAncestor: commonAncestor,
+            firstDirectory: linkFolder,
+            secondDirectory: targetFolder
+        ) {
+            return homeBoundedDirectories
+        }
+
+        return [commonAncestor]
+    }
+
     private func symbolicLinkTarget(at url: URL) -> String? {
         try? fileManager.destinationOfSymbolicLink(atPath: url.path)
     }
@@ -189,13 +235,72 @@ public struct SymlinkService {
             return nil
         }
 
-        if target.hasPrefix("/") {
-            return URL(fileURLWithPath: target).standardizedFileURL
+        return resolvedSymbolicLinkTarget(targetPath: target, for: url)
+    }
+
+    private func resolvedSymbolicLinkTarget(targetPath: String, for link: URL) -> URL {
+        let link = link.standardizedFileURL
+        if targetPath.hasPrefix("/") {
+            return URL(fileURLWithPath: targetPath).standardizedFileURL
         }
 
-        return url.deletingLastPathComponent()
-            .appendingPathComponent(target)
+        return link.deletingLastPathComponent()
+            .appendingPathComponent(targetPath)
             .standardizedFileURL
+    }
+
+    private func uniqueStandardizedURLs(_ urls: [URL]) -> [URL] {
+        var seen: Set<String> = []
+        var unique: [URL] = []
+
+        for url in urls.map(\.standardizedFileURL) where seen.insert(url.path).inserted {
+            unique.append(url)
+        }
+
+        return unique
+    }
+
+    private func homeBoundedAuthorizationDirectories(
+        commonAncestor: URL,
+        firstDirectory: URL,
+        secondDirectory: URL
+    ) -> [URL]? {
+        guard isDescendantOrSame(firstDirectory, of: homeDirectoryForAuthorization),
+              isDescendantOrSame(secondDirectory, of: homeDirectoryForAuthorization) else {
+            return nil
+        }
+
+        let commonComponents = commonAncestor.standardizedFileURL.pathComponents
+        let homeComponents = homeDirectoryForAuthorization.pathComponents
+        guard commonComponents.starts(with: homeComponents),
+              commonComponents.count <= homeComponents.count else {
+            return nil
+        }
+
+        return uniqueStandardizedURLs([
+            topLevelUserFolder(for: firstDirectory),
+            topLevelUserFolder(for: secondDirectory),
+        ])
+    }
+
+    private func isDescendantOrSame(_ url: URL, of ancestor: URL) -> Bool {
+        let components = url.standardizedFileURL.pathComponents
+        let ancestorComponents = ancestor.standardizedFileURL.pathComponents
+        return components.starts(with: ancestorComponents)
+    }
+
+    private func topLevelUserFolder(for directory: URL) -> URL {
+        let components = directory.standardizedFileURL.pathComponents
+        let homeComponents = homeDirectoryForAuthorization.pathComponents
+        guard components.starts(with: homeComponents),
+              components.count > homeComponents.count else {
+            return directory.standardizedFileURL
+        }
+
+        return URL(
+            fileURLWithPath: NSString.path(withComponents: Array(components.prefix(homeComponents.count + 1))),
+            isDirectory: true
+        )
     }
 
     private func refersToSameFile(_ first: URL, _ second: URL) -> Bool {
@@ -233,9 +338,7 @@ public struct SymlinkService {
             throw LinksmithError.selectedItemIsNotSymbolicLink(link)
         }
 
-        let target = targetPath.hasPrefix("/")
-            ? URL(fileURLWithPath: targetPath).standardizedFileURL
-            : link.deletingLastPathComponent().appendingPathComponent(targetPath).standardizedFileURL
+        let target = resolvedSymbolicLinkTarget(targetPath: targetPath, for: link)
 
         guard fileManager.fileExists(atPath: target.path) else {
             throw LinksmithError.symbolicLinkTargetDoesNotExist(link, targetPath)

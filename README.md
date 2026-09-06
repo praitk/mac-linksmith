@@ -138,7 +138,8 @@ To create a link to the selected folder itself, select exactly one folder in Fin
 To move a file and leave a symbolic link in its original location, select exactly one file in Finder, choose **Quick Actions → Create Symlink…**, click **Move and Replace with Link**, then choose the folder where the file should be moved.
 Linksmith will ask you to authorize the original folder before replacing the original file with a symbolic link.
 
-To replace a symbolic link with its target, select exactly one symbolic link in Finder, choose **Quick Actions → Create Symlink…**, then choose one of the symlink-specific options:
+To replace a symbolic link with its target, select exactly one symbolic link in Finder, choose **Quick Actions → Create Symlink…**, then choose one of the symlink-specific options.
+Linksmith asks for one common parent folder when that does not cross a `.linksmith` boundary, or separate folders when the marker boundary keeps the paths separate.
 
 - **Swap Files** moves the target file to the symbolic link's location and creates a new symbolic link where the target file used to be.
 - **Copy File Here** copies the target file to the symbolic link's location and leaves the original target file in place.

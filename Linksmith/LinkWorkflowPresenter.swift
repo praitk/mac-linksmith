@@ -9,6 +9,7 @@ protocol LinkWorkflowPresenting {
     func chooseDestination(message: String, prompt: String) -> URL?
     func chooseSources() -> [URL]?
     func authorizeOriginalFolder(for source: URL) -> URL?
+    func authorizeSymlinkReplacementFolder(_ folder: URL, for link: URL) -> URL?
     func confirmDestinationSymlinkReplacement() -> Bool
     func showCompletion(_ created: [CreatedSymlink])
     func showReplacementCompletion(_ replaced: ReplacedItemSymlink)
@@ -139,22 +140,49 @@ final class AppKitLinkWorkflowPresenter: NSObject, LinkWorkflowPresenting {
 
     func authorizeOriginalFolder(for source: URL) -> URL? {
         let originalFolder = source.deletingLastPathComponent().standardizedFileURL
+        return authorizeFolder(
+            originalFolder,
+            title: "APP HANDOFF - Authorize Original Folder",
+            message: "Choose \(originalFolder.lastPathComponent) to authorize Linksmith to replace the original file with a symbolic link.",
+            prompt: "Authorize",
+            mismatchError: .originalFolderAuthorizationMismatch(originalFolder)
+        )
+    }
+
+    func authorizeSymlinkReplacementFolder(_ folder: URL, for link: URL) -> URL? {
+        let folder = folder.standardizedFileURL
+        return authorizeFolder(
+            folder,
+            title: "APP HANDOFF - Authorize Symbolic Link Replacement",
+            message: "Choose \(folder.lastPathComponent) to authorize Linksmith to replace the selected symbolic link.",
+            prompt: "Authorize",
+            mismatchError: .symlinkReplacementFolderAuthorizationMismatch(folder)
+        )
+    }
+
+    private func authorizeFolder(
+        _ folder: URL,
+        title: String,
+        message: String,
+        prompt: String,
+        mismatchError: LinksmithActionError
+    ) -> URL? {
         let panel = NSOpenPanel()
-        panel.title = "APP HANDOFF - Authorize Original Folder"
-        panel.message = "Choose \(originalFolder.lastPathComponent) so Linksmith can replace the original file with a symbolic link."
-        panel.prompt = "Authorize"
+        panel.title = title
+        panel.message = message
+        panel.prompt = prompt
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = false
-        panel.directoryURL = originalFolder
+        panel.directoryURL = folder
 
         guard panel.runModal() == .OK, let selected = panel.url?.standardizedFileURL else {
             return nil
         }
 
-        guard selected == originalFolder else {
-            showError(LinksmithActionError.originalFolderAuthorizationMismatch(originalFolder))
+        guard selected == folder else {
+            showError(mismatchError)
             return nil
         }
 
@@ -217,6 +245,7 @@ final class AppKitLinkWorkflowPresenter: NSObject, LinkWorkflowPresenting {
 enum LinksmithActionError: LocalizedError {
     case destinationMustBeSingleFolder
     case originalFolderAuthorizationMismatch(URL)
+    case symlinkReplacementFolderAuthorizationMismatch(URL)
 
     var errorDescription: String? {
         switch self {
@@ -224,6 +253,8 @@ enum LinksmithActionError: LocalizedError {
             "Select one folder to create symbolic links into."
         case .originalFolderAuthorizationMismatch(let folder):
             "Choose the original folder to continue: \(folder.path)"
+        case .symlinkReplacementFolderAuthorizationMismatch(let folder):
+            "Choose the requested symbolic link replacement folder to continue: \(folder.path)"
         }
     }
 }
