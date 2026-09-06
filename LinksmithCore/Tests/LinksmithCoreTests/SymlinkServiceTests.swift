@@ -392,6 +392,87 @@ struct SymlinkServiceTests {
         }
     }
 
+    @Test func symbolicLinkTargetPathDetectsBrokenSymlinks() throws {
+        try withTemporaryDirectory { root in
+            let link = root.appendingPathComponent("broken-link.txt")
+            try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "missing.txt")
+
+            #expect(SymlinkService().symbolicLinkTargetPath(at: link) == "missing.txt")
+        }
+    }
+
+    @Test func copyTargetReplacingSymlinkCopiesTargetAndLeavesOriginal() throws {
+        try withTemporaryDirectory { root in
+            let target = root.appendingPathComponent("target/report.txt")
+            let link = root.appendingPathComponent("link/report.txt")
+            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("contents".utf8).write(to: target)
+            try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "../target/report.txt")
+
+            let replaced = try SymlinkService().copyTargetReplacingSymlink(at: link)
+
+            #expect(replaced.symbolicLink == link)
+            #expect(replaced.originalTargetPath == "../target/report.txt")
+            #expect(replaced.resolvedTarget == target)
+            #expect(try Data(contentsOf: link) == Data("contents".utf8))
+            #expect(try Data(contentsOf: target) == Data("contents".utf8))
+            #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) == nil)
+        }
+    }
+
+    @Test func moveTargetReplacingSymlinkMovesTargetAndRemovesOriginal() throws {
+        try withTemporaryDirectory { root in
+            let target = root.appendingPathComponent("target/report.txt")
+            let link = root.appendingPathComponent("link/report.txt")
+            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("contents".utf8).write(to: target)
+            try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: target.path)
+
+            let replaced = try SymlinkService().moveTargetReplacingSymlink(at: link)
+
+            #expect(replaced.symbolicLink == link)
+            #expect(replaced.originalTargetPath == target.path)
+            #expect(replaced.resolvedTarget == target)
+            #expect(try Data(contentsOf: link) == Data("contents".utf8))
+            #expect(FileManager.default.fileExists(atPath: target.path) == false)
+            #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) == nil)
+        }
+    }
+
+    @Test func swapTargetWithSymlinkMovesTargetAndCreatesReplacementLink() throws {
+        try withTemporaryDirectory { root in
+            let target = root.appendingPathComponent("target/report.txt")
+            let link = root.appendingPathComponent("link/report.txt")
+            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("contents".utf8).write(to: target)
+            try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "../target/report.txt")
+
+            let swapped = try SymlinkService().swapTargetWithSymlink(at: link)
+
+            #expect(swapped.originalSymbolicLink == link)
+            #expect(swapped.movedItem == link)
+            #expect(swapped.replacementSymbolicLink == target)
+            #expect(swapped.replacementTargetPath == "../link/report.txt")
+            #expect(try Data(contentsOf: link) == Data("contents".utf8))
+            #expect(try FileManager.default.destinationOfSymbolicLink(atPath: target.path) == "../link/report.txt")
+        }
+    }
+
+    @Test func symlinkTargetReplacementRejectsBrokenSymlinkWithoutRemovingIt() throws {
+        try withTemporaryDirectory { root in
+            let link = root.appendingPathComponent("broken-link.txt")
+            try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "missing.txt")
+
+            #expect(throws: LinksmithError.symbolicLinkTargetDoesNotExist(link, "missing.txt")) {
+                try SymlinkService().copyTargetReplacingSymlink(at: link)
+            }
+            #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == "missing.txt")
+        }
+    }
+
     @Test func createLinksRejectsEmptySources() throws {
         try withTemporaryDirectory { root in
             let destination = root.appendingPathComponent("links", isDirectory: true)

@@ -26,6 +26,7 @@ Linksmith currently provides a Finder Quick Action named **Create Symlink…**:
 - creates symbolic links for selected files or folders in a chosen destination folder;
 - when one folder is selected, can instead create links inside that folder after choosing the source items;
 - when one file is selected, can move that file to a chosen folder and replace the original with a symbolic link;
+- when one symbolic link is selected, can swap its target with the link, copy the target over the link, or move the target over the link;
 - creates relative symbolic links by default;
 - switches requested relative links to absolute links when the source or destination is below a `.linksmith` marker boundary;
 - optionally creates absolute symbolic links through the menu bar app setting;
@@ -137,6 +138,14 @@ To create a link to the selected folder itself, select exactly one folder in Fin
 To move a file and leave a symbolic link in its original location, select exactly one file in Finder, choose **Quick Actions → Create Symlink…**, click **Move and Replace with Link**, then choose the folder where the file should be moved.
 Linksmith will ask you to authorize the original folder before replacing the original file with a symbolic link.
 
+To replace a symbolic link with its target, select exactly one symbolic link in Finder, choose **Quick Actions → Create Symlink…**, then choose one of the symlink-specific options:
+
+- **Swap Files** moves the target file to the symbolic link's location and creates a new symbolic link where the target file used to be.
+- **Copy File Here** copies the target file to the symbolic link's location and leaves the original target file in place.
+- **Move File Here** moves the target file to the symbolic link's location and removes it from its original location.
+
+If the selected symbolic link is broken, Linksmith still recognizes it as a symbolic link and offers these options, but the replacement operation fails without removing the broken link.
+
 The menu bar app also lets you choose whether newly created links should prefer relative or absolute targets.
 
 ### Relative and absolute links
@@ -154,7 +163,7 @@ If the action is not visible during development, enable `LinksmithAction` in mac
 ## Project status
 
 Linksmith is in early development.
-The first end-to-end symbolic-link workflows are implemented and covered by tests for path generation, collision handling, multiple selections, pending Finder handoff storage, recent destinations, move-and-replace behavior, and marker-based relative-versus-absolute links.
+The first end-to-end symbolic-link workflows are implemented and covered by tests for path generation, collision handling, multiple selections, pending Finder handoff storage, recent destinations, move-and-replace behavior, selected-symlink replacement behavior, broken symlink handling, and marker-based relative-versus-absolute links.
 
 ## License
 

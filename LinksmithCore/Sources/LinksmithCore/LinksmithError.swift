@@ -8,8 +8,11 @@ public enum LinksmithError: LocalizedError, Equatable {
     case destinationContainsLinkToSource(URL, URL)
     case destinationAlreadyContainsItemNamed(URL)
     case destinationIsNotDirectory(URL)
+    case selectedItemIsNotSymbolicLink(URL)
+    case symbolicLinkTargetDoesNotExist(URL, String)
     case unableToReplaceDestinationLink(URL, String)
     case unableToMoveItem(URL, URL, String)
+    case unableToCopyItem(URL, URL, String)
     case unableToCreateLink(URL, String)
 
     public var errorDescription: String? {
@@ -28,10 +31,16 @@ public enum LinksmithError: LocalizedError, Equatable {
             "The destination already contains another item named \(url.lastPathComponent)."
         case .destinationIsNotDirectory(let url):
             "The selected destination is not a folder: \(url.path)"
+        case .selectedItemIsNotSymbolicLink(let url):
+            "The selected item is not a symbolic link: \(url.path)"
+        case .symbolicLinkTargetDoesNotExist(let link, let target):
+            "\(link.lastPathComponent) points to a target that no longer exists: \(target)"
         case .unableToReplaceDestinationLink(let url, let reason):
             "Could not replace the existing symbolic link \(url.lastPathComponent): \(reason)"
         case .unableToMoveItem(let source, let destination, let reason):
             "Could not move \(source.lastPathComponent) to \(destination.deletingLastPathComponent().path): \(reason)"
+        case .unableToCopyItem(let source, let destination, let reason):
+            "Could not copy \(source.lastPathComponent) to \(destination.deletingLastPathComponent().path): \(reason)"
         case .unableToCreateLink(let url, let reason):
             "Could not create \(url.lastPathComponent): \(reason)"
         }

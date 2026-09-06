@@ -69,6 +69,30 @@ struct LinksmithErrorTests {
         #expect(error.errorDescription == "The selected destination is not a folder: /tmp/file.txt")
     }
 
+    @Test func nonSymlinkDescriptionMentionsPath() {
+        let error = LinksmithError.selectedItemIsNotSymbolicLink(URL(fileURLWithPath: "/tmp/report.pdf"))
+
+        #expect(error.errorDescription == "The selected item is not a symbolic link: /tmp/report.pdf")
+    }
+
+    @Test func brokenSymlinkDescriptionMentionsTargetPath() {
+        let error = LinksmithError.symbolicLinkTargetDoesNotExist(
+            URL(fileURLWithPath: "/tmp/link.pdf"),
+            "../missing.pdf"
+        )
+
+        #expect(error.errorDescription == "link.pdf points to a target that no longer exists: ../missing.pdf")
+    }
+
+    @Test func copyFailureDescriptionAvoidsDuplicatingUnderlyingMessage() {
+        let source = URL(fileURLWithPath: "/tmp/source/report.pdf")
+        let destination = URL(fileURLWithPath: "/tmp/link/report.pdf")
+
+        let error = LinksmithError.unableToCopyItem(source, destination, "Operation not permitted")
+
+        #expect(error.errorDescription == "Could not copy report.pdf to /tmp/link: Operation not permitted")
+    }
+
     @Test func createLinkFailureDescriptionNamesLink() {
         let error = LinksmithError.unableToCreateLink(
             URL(fileURLWithPath: "/tmp/links/report.pdf"),

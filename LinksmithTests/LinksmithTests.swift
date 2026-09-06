@@ -75,4 +75,44 @@ struct LinksmithTests {
         #expect(content.message == "File Moved")
         #expect(content.informativeText == "Moved report.pdf and created absolute symbolic link: report.pdf.")
     }
+
+    @Test func copiedSymlinkTargetCompletionMentionsReplacedLinkName() {
+        let replaced = ReplacedSymlinkTarget(
+            symbolicLink: URL(fileURLWithPath: "/tmp/link/report.pdf"),
+            originalTargetPath: "../target/report.pdf",
+            resolvedTarget: URL(fileURLWithPath: "/tmp/target/report.pdf")
+        )
+
+        let content = LinkCompletionAlertContent.copiedSymlinkTarget(replaced)
+
+        #expect(content.message == "File Copied")
+        #expect(content.informativeText == "Copied report.pdf and replaced symbolic link: report.pdf.")
+    }
+
+    @Test func movedSymlinkTargetCompletionMentionsReplacedLinkName() {
+        let replaced = ReplacedSymlinkTarget(
+            symbolicLink: URL(fileURLWithPath: "/tmp/link/report.pdf"),
+            originalTargetPath: "../target/report.pdf",
+            resolvedTarget: URL(fileURLWithPath: "/tmp/target/report.pdf")
+        )
+
+        let content = LinkCompletionAlertContent.movedSymlinkTarget(replaced)
+
+        #expect(content.message == "File Moved")
+        #expect(content.informativeText == "Moved report.pdf and replaced symbolic link: report.pdf.")
+    }
+
+    @Test func swappedSymlinkTargetCompletionMentionsReplacementLinkNameAndStyle() {
+        let swapped = SwappedSymlinkTarget(
+            originalSymbolicLink: URL(fileURLWithPath: "/tmp/link/report.pdf"),
+            movedItem: URL(fileURLWithPath: "/tmp/link/report.pdf"),
+            replacementSymbolicLink: URL(fileURLWithPath: "/tmp/target/report.pdf"),
+            replacementTargetPath: "../link/report.pdf"
+        )
+
+        let content = LinkCompletionAlertContent.swappedSymlinkTarget(swapped)
+
+        #expect(content.message == "Files Swapped")
+        #expect(content.informativeText == "Moved report.pdf into place and created relative symbolic link: report.pdf.")
+    }
 }

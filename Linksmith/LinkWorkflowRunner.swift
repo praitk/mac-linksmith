@@ -47,13 +47,24 @@ final class LinkWorkflowRunner {
         case .moveSelectionAndReplaceWithSymlink:
             diagnostics?.log("Mode selected: Move and Replace with Link.")
             moveSelectionAndReplaceWithSymlink(selection[0])
+        case .swapSymlinkTarget:
+            diagnostics?.log("Mode selected: Swap Symlink Target.")
+            swapSymlinkTarget(selection[0])
+        case .copySymlinkTargetReplacingLink:
+            diagnostics?.log("Mode selected: Copy Symlink Target.")
+            copySymlinkTargetReplacingLink(selection[0])
+        case .moveSymlinkTargetReplacingLink:
+            diagnostics?.log("Mode selected: Move Symlink Target.")
+            moveSymlinkTargetReplacingLink(selection[0])
         }
     }
 
     private func chooseMode(for selection: [URL]) -> LinkActionMode? {
         LinkWorkflowModeResolver.mode(
             for: selection,
+            isSymbolicLink: isSymbolicLink,
             isDirectory: isDirectory,
+            chooseSymlinkMode: presenter.chooseSymlinkMode,
             chooseSingleFolderMode: presenter.chooseSingleFolderMode,
             chooseSingleFileMode: presenter.chooseSingleFileMode
         )
@@ -104,6 +115,49 @@ final class LinkWorkflowRunner {
         }
 
         moveAndReplace(source: source, destination: destination, additionalScopedURLs: [originalFolder])
+    }
+
+    private func swapSymlinkTarget(_ link: URL) {
+        do {
+            let swapped = try SecurityScopedAccess.withAccess(to: [link]) {
+                diagnostics?.log("Swapping symlink target with selected link: \(link.path)")
+                return try service.swapTargetWithSymlink(at: link, kind: settings.symlinkKind)
+            }
+            diagnostics?.log("Moved target into place: \(swapped.movedItem.path)")
+            diagnostics?.log("Created replacement link: \(swapped.replacementSymbolicLink.path) -> \(swapped.replacementTargetPath)")
+            presenter.showSwappedSymlinkTargetCompletion(swapped)
+        } catch {
+            diagnostics?.log("Failed swapping symlink target: \(error.localizedDescription)")
+            presenter.showError(error)
+        }
+    }
+
+    private func copySymlinkTargetReplacingLink(_ link: URL) {
+        do {
+            let replaced = try SecurityScopedAccess.withAccess(to: [link]) {
+                diagnostics?.log("Copying symlink target over selected link: \(link.path)")
+                return try service.copyTargetReplacingSymlink(at: link)
+            }
+            diagnostics?.log("Copied target \(replaced.resolvedTarget.path) over link \(replaced.symbolicLink.path)")
+            presenter.showCopiedSymlinkTargetCompletion(replaced)
+        } catch {
+            diagnostics?.log("Failed copying symlink target: \(error.localizedDescription)")
+            presenter.showError(error)
+        }
+    }
+
+    private func moveSymlinkTargetReplacingLink(_ link: URL) {
+        do {
+            let replaced = try SecurityScopedAccess.withAccess(to: [link]) {
+                diagnostics?.log("Moving symlink target over selected link: \(link.path)")
+                return try service.moveTargetReplacingSymlink(at: link)
+            }
+            diagnostics?.log("Moved target \(replaced.resolvedTarget.path) over link \(replaced.symbolicLink.path)")
+            presenter.showMovedSymlinkTargetCompletion(replaced)
+        } catch {
+            diagnostics?.log("Failed moving symlink target: \(error.localizedDescription)")
+            presenter.showError(error)
+        }
     }
 
     private func createLinks(to sources: [URL], in destination: URL, rememberDestination: Bool) {
@@ -203,6 +257,12 @@ final class LinkWorkflowRunner {
         SecurityScopedAccess.withAccess(to: [url]) {
             var isDirectory: ObjCBool = false
             return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+        }
+    }
+
+    private func isSymbolicLink(_ url: URL) -> Bool {
+        SecurityScopedAccess.withAccess(to: [url]) {
+            service.symbolicLinkTargetPath(at: url) != nil
         }
     }
 

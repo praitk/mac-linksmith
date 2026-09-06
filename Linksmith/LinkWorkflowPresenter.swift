@@ -3,6 +3,7 @@ import LinksmithCore
 
 @MainActor
 protocol LinkWorkflowPresenting {
+    func chooseSymlinkMode() -> LinkActionMode?
     func chooseSingleFolderMode() -> LinkActionMode?
     func chooseSingleFileMode() -> LinkActionMode?
     func chooseDestination(message: String, prompt: String) -> URL?
@@ -11,6 +12,9 @@ protocol LinkWorkflowPresenting {
     func confirmDestinationSymlinkReplacement() -> Bool
     func showCompletion(_ created: [CreatedSymlink])
     func showReplacementCompletion(_ replaced: ReplacedItemSymlink)
+    func showCopiedSymlinkTargetCompletion(_ replaced: ReplacedSymlinkTarget)
+    func showMovedSymlinkTargetCompletion(_ replaced: ReplacedSymlinkTarget)
+    func showSwappedSymlinkTargetCompletion(_ swapped: SwappedSymlinkTarget)
     func showError(_ error: Error)
 }
 
@@ -24,6 +28,27 @@ final class AppKitLinkWorkflowPresenter: NSObject, LinkWorkflowPresenting {
     init(recents: RecentDestinationStore, diagnostics: DebugDiagnostics?) {
         self.recents = recents
         self.diagnostics = diagnostics
+    }
+
+    func chooseSymlinkMode() -> LinkActionMode? {
+        let alert = NSAlert()
+        alert.messageText = "Replace Symbolic Link"
+        alert.informativeText = "Choose how Linksmith should replace the selected symbolic link using its target file. If the link is broken, the operation will fail without removing it."
+        alert.addButton(withTitle: "Swap Files")
+        alert.addButton(withTitle: "Copy File Here")
+        alert.addButton(withTitle: "Move File Here")
+        alert.addButton(withTitle: "Cancel")
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            return .swapSymlinkTarget
+        case .alertSecondButtonReturn:
+            return .copySymlinkTargetReplacingLink
+        case .alertThirdButtonReturn:
+            return .moveSymlinkTargetReplacingLink
+        default:
+            return nil
+        }
     }
 
     func chooseSingleFolderMode() -> LinkActionMode? {
@@ -156,6 +181,26 @@ final class AppKitLinkWorkflowPresenter: NSObject, LinkWorkflowPresenting {
 
     func showReplacementCompletion(_ replaced: ReplacedItemSymlink) {
         let content = LinkCompletionAlertContent.replacedItem(replaced)
+        let alert = NSAlert()
+        alert.messageText = content.message
+        alert.informativeText = content.informativeText
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    func showCopiedSymlinkTargetCompletion(_ replaced: ReplacedSymlinkTarget) {
+        showAlert(content: LinkCompletionAlertContent.copiedSymlinkTarget(replaced))
+    }
+
+    func showMovedSymlinkTargetCompletion(_ replaced: ReplacedSymlinkTarget) {
+        showAlert(content: LinkCompletionAlertContent.movedSymlinkTarget(replaced))
+    }
+
+    func showSwappedSymlinkTargetCompletion(_ swapped: SwappedSymlinkTarget) {
+        showAlert(content: LinkCompletionAlertContent.swappedSymlinkTarget(swapped))
+    }
+
+    private func showAlert(content: LinkCompletionAlertContent) {
         let alert = NSAlert()
         alert.messageText = content.message
         alert.informativeText = content.informativeText

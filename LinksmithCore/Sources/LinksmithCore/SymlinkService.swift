@@ -35,6 +35,37 @@ public struct ReplacedItemSymlink: Equatable, Sendable {
     }
 }
 
+public struct ReplacedSymlinkTarget: Equatable, Sendable {
+    public let symbolicLink: URL
+    public let originalTargetPath: String
+    public let resolvedTarget: URL
+
+    public init(symbolicLink: URL, originalTargetPath: String, resolvedTarget: URL) {
+        self.symbolicLink = symbolicLink
+        self.originalTargetPath = originalTargetPath
+        self.resolvedTarget = resolvedTarget
+    }
+}
+
+public struct SwappedSymlinkTarget: Equatable, Sendable {
+    public let originalSymbolicLink: URL
+    public let movedItem: URL
+    public let replacementSymbolicLink: URL
+    public let replacementTargetPath: String
+
+    public init(
+        originalSymbolicLink: URL,
+        movedItem: URL,
+        replacementSymbolicLink: URL,
+        replacementTargetPath: String
+    ) {
+        self.originalSymbolicLink = originalSymbolicLink
+        self.movedItem = movedItem
+        self.replacementSymbolicLink = replacementSymbolicLink
+        self.replacementTargetPath = replacementTargetPath
+    }
+}
+
 public struct SymlinkService {
     private static let markerFileName = ".linksmith"
 
@@ -145,6 +176,10 @@ public struct SymlinkService {
         return (try? fileManager.destinationOfSymbolicLink(atPath: url.path)) == nil
     }
 
+    public func symbolicLinkTargetPath(at url: URL) -> String? {
+        symbolicLinkTarget(at: url.standardizedFileURL)
+    }
+
     private func symbolicLinkTarget(at url: URL) -> String? {
         try? fileManager.destinationOfSymbolicLink(atPath: url.path)
     }
@@ -190,6 +225,27 @@ public struct SymlinkService {
         guard rename(source.path, destination.path) == 0 else {
             throw LinksmithError.unableToMoveItem(source, destination, String(cString: strerror(errno)))
         }
+    }
+
+    private func resolvedRequiredSymbolicLinkTarget(at link: URL) throws -> (targetPath: String, target: URL) {
+        let link = link.standardizedFileURL
+        guard let targetPath = symbolicLinkTarget(at: link) else {
+            throw LinksmithError.selectedItemIsNotSymbolicLink(link)
+        }
+
+        let target = targetPath.hasPrefix("/")
+            ? URL(fileURLWithPath: targetPath).standardizedFileURL
+            : link.deletingLastPathComponent().appendingPathComponent(targetPath).standardizedFileURL
+
+        guard fileManager.fileExists(atPath: target.path) else {
+            throw LinksmithError.symbolicLinkTargetDoesNotExist(link, targetPath)
+        }
+
+        return (targetPath, target)
+    }
+
+    private func restoreSymbolicLink(at link: URL, targetPath: String) {
+        try? fileManager.createSymbolicLink(atPath: link.path, withDestinationPath: targetPath)
     }
 
     @discardableResult
@@ -300,5 +356,88 @@ public struct SymlinkService {
         }
 
         return ReplacedItemSymlink(original: source, movedItem: movedItem, targetPath: target)
+    }
+
+    @discardableResult
+    public func copyTargetReplacingSymlink(at link: URL) throws -> ReplacedSymlinkTarget {
+        let link = link.standardizedFileURL
+        let (targetPath, target) = try resolvedRequiredSymbolicLinkTarget(at: link)
+
+        do {
+            try removeSymbolicLink(at: link)
+        } catch {
+            throw error
+        }
+
+        do {
+            try fileManager.copyItem(at: target, to: link)
+        } catch {
+            restoreSymbolicLink(at: link, targetPath: targetPath)
+            throw LinksmithError.unableToCopyItem(target, link, error.localizedDescription)
+        }
+
+        return ReplacedSymlinkTarget(symbolicLink: link, originalTargetPath: targetPath, resolvedTarget: target)
+    }
+
+    @discardableResult
+    public func moveTargetReplacingSymlink(at link: URL) throws -> ReplacedSymlinkTarget {
+        let link = link.standardizedFileURL
+        let (targetPath, target) = try resolvedRequiredSymbolicLinkTarget(at: link)
+
+        do {
+            try removeSymbolicLink(at: link)
+        } catch {
+            throw error
+        }
+
+        do {
+            try moveFile(at: target, to: link)
+        } catch {
+            restoreSymbolicLink(at: link, targetPath: targetPath)
+            if let error = error as? LinksmithError {
+                throw error
+            }
+            throw LinksmithError.unableToMoveItem(target, link, error.localizedDescription)
+        }
+
+        return ReplacedSymlinkTarget(symbolicLink: link, originalTargetPath: targetPath, resolvedTarget: target)
+    }
+
+    @discardableResult
+    public func swapTargetWithSymlink(at link: URL, kind: SymlinkKind = .relative) throws -> SwappedSymlinkTarget {
+        let link = link.standardizedFileURL
+        let (originalTargetPath, target) = try resolvedRequiredSymbolicLinkTarget(at: link)
+
+        do {
+            try removeSymbolicLink(at: link)
+        } catch {
+            throw error
+        }
+
+        do {
+            try moveFile(at: target, to: link)
+        } catch {
+            restoreSymbolicLink(at: link, targetPath: originalTargetPath)
+            if let error = error as? LinksmithError {
+                throw error
+            }
+            throw LinksmithError.unableToMoveItem(target, link, error.localizedDescription)
+        }
+
+        let replacementTarget = targetPath(for: link, linkIn: target.deletingLastPathComponent(), kind: kind)
+        do {
+            try fileManager.createSymbolicLink(atPath: target.path, withDestinationPath: replacementTarget)
+        } catch {
+            try? moveFile(at: link, to: target)
+            restoreSymbolicLink(at: link, targetPath: originalTargetPath)
+            throw LinksmithError.unableToCreateLink(target, error.localizedDescription)
+        }
+
+        return SwappedSymlinkTarget(
+            originalSymbolicLink: link,
+            movedItem: link,
+            replacementSymbolicLink: target,
+            replacementTargetPath: replacementTarget
+        )
     }
 }
