@@ -50,6 +50,41 @@ struct LinksmithTests {
         #expect(content.informativeText == "Created 2 symbolic links:\nreport 2.pdf (relative)\nimage.png (absolute)")
     }
 
+    @Test func batchPlanReviewMentionsPlannedRenamedLinks() {
+        let plan = LinkCreationPlan(items: [
+            LinkCreationPlanItem(
+                source: URL(fileURLWithPath: "/tmp/source/report.pdf"),
+                link: URL(fileURLWithPath: "/tmp/links/report.pdf"),
+                targetPath: "../source/report.pdf"
+            ),
+            LinkCreationPlanItem(
+                source: URL(fileURLWithPath: "/tmp/other/report.pdf"),
+                link: URL(fileURLWithPath: "/tmp/links/report 2.pdf"),
+                targetPath: "../other/report.pdf"
+            ),
+        ])
+
+        let content = LinkCreationPlanAlertContent.review(plan)
+
+        #expect(content.message == "Create 2 Symbolic Links?")
+        #expect(content.informativeText == "Linksmith will create these links:\nreport.pdf -> report.pdf\nreport.pdf -> report 2.pdf (renamed)")
+    }
+
+    @Test func batchPlanReviewSummarizesLongPlans() {
+        let items = (1...13).map { index in
+            LinkCreationPlanItem(
+                source: URL(fileURLWithPath: "/tmp/source/item\(index).txt"),
+                link: URL(fileURLWithPath: "/tmp/links/item\(index).txt"),
+                targetPath: "../source/item\(index).txt"
+            )
+        }
+
+        let content = LinkCreationPlanAlertContent.review(LinkCreationPlan(items: items))
+
+        #expect(content.message == "Create 13 Symbolic Links?")
+        #expect(content.informativeText.hasSuffix("\n...and 1 more."))
+    }
+
     @Test func moveAndReplaceCompletionMentionsMovedFileAndCreatedLinkName() {
         let replaced = ReplacedItemSymlink(
             original: URL(fileURLWithPath: "/tmp/source/report.pdf"),

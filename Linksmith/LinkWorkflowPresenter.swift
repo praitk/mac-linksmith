@@ -10,6 +10,7 @@ protocol LinkWorkflowPresenting {
     func chooseSources() -> [URL]?
     func authorizeOriginalFolder(for source: URL) -> URL?
     func authorizeSymlinkReplacementFolder(_ folder: URL, for link: URL) -> URL?
+    func confirmLinkCreationPlan(_ plan: LinkCreationPlan) -> Bool
     func confirmDuplicateTargetLinkCreation() -> Bool
     func confirmDestinationSymlinkReplacement() -> Bool
     func showCompletion(_ created: [CreatedSymlink])
@@ -195,6 +196,16 @@ final class AppKitLinkWorkflowPresenter: NSObject, LinkWorkflowPresenting {
         alert.messageText = "Destination Already Contains a Link to the Same File"
         alert.informativeText = "The destination contains a symbolic link to the selected file. Swap files by replacing that destination link with the moved file and creating a new link at the original location?"
         alert.addButton(withTitle: "Swap Files")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    func confirmLinkCreationPlan(_ plan: LinkCreationPlan) -> Bool {
+        let content = LinkCreationPlanAlertContent.review(plan)
+        let alert = NSAlert()
+        alert.messageText = content.message
+        alert.informativeText = content.informativeText
+        alert.addButton(withTitle: "Create Links")
         alert.addButton(withTitle: "Cancel")
         return alert.runModal() == .alertFirstButtonReturn
     }

@@ -85,6 +85,30 @@ struct LinkCompletionAlertContent: Equatable {
     }
 }
 
+struct LinkCreationPlanAlertContent: Equatable {
+    let message: String
+    let informativeText: String
+
+    static func review(_ plan: LinkCreationPlan) -> LinkCreationPlanAlertContent {
+        let itemCount = plan.items.count
+        let previewLimit = 12
+        let lines = plan.items.prefix(previewLimit).map { item in
+            if item.link.lastPathComponent == item.source.lastPathComponent {
+                return "\(item.source.lastPathComponent) -> \(item.link.lastPathComponent)"
+            }
+
+            return "\(item.source.lastPathComponent) -> \(item.link.lastPathComponent) (renamed)"
+        }
+        let remainingCount = itemCount - lines.count
+        let suffix = remainingCount > 0 ? "\n...and \(remainingCount) more." : ""
+
+        return LinkCreationPlanAlertContent(
+            message: "Create \(itemCount) Symbolic Links?",
+            informativeText: "Linksmith will create these links:\n\(lines.joined(separator: "\n"))\(suffix)"
+        )
+    }
+}
+
 private extension Collection {
     var onlyElement: Element? {
         count == 1 ? first : nil

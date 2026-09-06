@@ -221,7 +221,7 @@ final class LinkWorkflowRunner {
         allowsDuplicateTargetLinks: Bool
     ) {
         do {
-            let created = try SecurityScopedAccess.withAccess(to: sources + [destination]) {
+            let created: [CreatedSymlink] = try SecurityScopedAccess.withAccess(to: sources + [destination]) {
                 diagnostics?.log("Planning \(sources.count) link(s) in \(destination.path).")
                 let plan = try service.planLinks(
                     to: sources,
@@ -230,9 +230,16 @@ final class LinkWorkflowRunner {
                     sourceValidation: .allowUnresolvedSources,
                     allowsDuplicateTargetLinks: allowsDuplicateTargetLinks
                 )
+                if plan.items.count > 1 {
+                    guard presenter.confirmLinkCreationPlan(plan) else {
+                        diagnostics?.log("User cancelled planned batch link creation.")
+                        return [CreatedSymlink]()
+                    }
+                }
                 diagnostics?.log("Creating \(plan.items.count) planned link(s) in \(destination.path).")
                 return try service.createLinks(from: plan)
             }
+            guard created.isEmpty == false else { return }
             if rememberDestination {
                 try recents.remember(destination)
                 diagnostics?.log("Remembered recent destination: \(destination.path)")

@@ -32,8 +32,9 @@ Linksmith currently provides a Finder Quick Action named **Create Symlink…**:
 - optionally creates absolute symbolic links through the menu bar app setting;
 - remembers up to 10 recent destination folders;
 - stores persistent folder access as security-scoped bookmarks; and
-- handles naming conflicts with incrementing suffixes such as `report 2.pdf`; and
-- asks before adding another link anyways when the destination already contains a symbolic link to the same selected item.
+- handles naming conflicts with incrementing suffixes such as `report 2.pdf`;
+- previews multi-item link batches before creating anything; and
+- asks before adding another link when the destination already contains a symbolic link to the same selected item.
 
 Hard links are not implemented.
 
@@ -131,7 +132,8 @@ swift test --disable-sandbox
 4. Complete the prompts in the Linksmith app.
 
 For one or more selected files or folders, choose the destination folder where links should be created.
-If the destination already contains a symbolic link to the same selected item, Linksmith asks whether to add another link anyways.
+When multiple items are selected, Linksmith previews the planned links before creating anything, including any automatic renamed link names such as `report 2.pdf`.
+If the destination already contains a symbolic link to the same selected item, Linksmith asks whether to add another link.
 
 To create links inside a folder instead, select exactly one folder in Finder, choose **Quick Actions → Create Symlink…**, click **Create Links Here**, then choose the files or folders to link into it.
 
@@ -166,7 +168,7 @@ If the action is not visible during development, enable `LinksmithAction` in mac
 ## Project status
 
 Linksmith is in early development.
-The first end-to-end symbolic-link workflows are implemented and covered by tests for path generation, collision handling, multiple selections, pending Finder handoff storage, recent destinations, move-and-replace behavior, selected-symlink replacement behavior, broken symlink handling, and marker-based relative-versus-absolute links.
+The first end-to-end symbolic-link workflows are implemented and covered by tests for path generation, collision handling, multiple selections, batch planning, pending Finder handoff storage, recent destinations, move-and-replace behavior, selected-symlink replacement behavior, broken symlink handling, and marker-based relative-versus-absolute links.
 
 ## License
 
